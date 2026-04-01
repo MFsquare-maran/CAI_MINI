@@ -1,4 +1,4 @@
-# CAI_MINI — Environmental Sensor Platform
+# CAI_MINI — Environmental Sensor Platformen
 
 > Modulare IoT-Sensorplattform auf Basis des **Seeed XIAO ESP32-S3**  
 > zur Erfassung von Umweltdaten und Übertragung via **WLAN/MQTT** oder **LoRa**.
