@@ -1,0 +1,20 @@
+{
+    "files.associations": {
+        ".fantomasignore": "ignore",
+        "optional": "cpp",
+        "istream": "cpp",
+        "ostream": "cpp",
+        "system_error": "cpp",
+        "array": "cpp",
+        "functional": "cpp",
+        "tuple": "cpp",
+        "type_traits": "cpp",
+        "utility": "cpp",
+        "*.tcc": "cpp",
+        "string": "cpp",
+        "algorithm": "cpp",
+        "string_view": "cpp",
+        "initializer_list": "cpp",
+        "cmath": "cpp"
+    }
+}
