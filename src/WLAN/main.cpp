@@ -1,3 +1,15 @@
+/*
+ * ============================================================
+ *  CAI_MINI — WLAN
+ * ============================================================
+ *  Beschreibung : Verbindet sich per WLAN und sendet
+ *                 Sensordaten (BME680) via MQTT / ThingsBoard
+ *  Board        : Seeed XIAO ESP32-S3
+ *  Framework    : Arduino
+ *  Autor        : maran
+ *  Erstellt     : 2026-04-01
+ * ============================================================
+ */
 
 #include <Arduino.h>
 #include <SPI.h>                 // Für SD-Karten-Kommunikation
