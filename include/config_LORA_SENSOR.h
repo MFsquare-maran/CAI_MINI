@@ -29,7 +29,7 @@
 #define SD_DETECT 7
 
 
-#define LORA_NSS    41
+
 #define LORA_DIO1   39
 #define LORA_RESET  42
 #define LORA_BUSY   40
@@ -37,7 +37,7 @@
 #define LORA_SCK     7
 #define LORA_MISO    8
 #define LORA_MOSI    9
-#define LORA_CS      41
+#define LORA_NSS      41
 
 #define SHUTDOWN_PIN 8
 
