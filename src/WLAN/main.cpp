@@ -18,7 +18,7 @@
 #include <WiFi.h>                // WiFi-Verbindung
 #include <Arduino_MQTT_Client.h> // MQTT Client
 #include <ThingsBoard.h>         // ThingsBoard Client
-#include "pin_config.h"          // Pin-Konfiguration (eigene Header-Datei)
+#include "pin_config_WLAN.h"          // Pin-Konfiguration (eigene Header-Datei)
 #include "time.h"                // Zeitfunktionen
 #include "BME680_Sensor.h"       // Sensorbibliothek für BME680
 #include <math.h>
