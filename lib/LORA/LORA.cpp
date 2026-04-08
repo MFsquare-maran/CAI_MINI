@@ -362,6 +362,9 @@ String LORA::tryReceive()
     {
         Serial.println("[LORA] RSSI: " + String(m_radio->getRSSI(), 1) +
                        " dBm | SNR: " + String(m_radio->getSNR(),  1) + " dB");
+        
+        m_lastRSSI = m_radio->getRSSI();
+        m_lastSNR  = m_radio->getSNR();
         return received;
     }
 
@@ -389,4 +392,15 @@ String LORA::splitGet(const String& str, int index) const
         }
     }
     return "";
+}
+
+
+float LORA::getLastRSSI()
+{
+    return m_lastRSSI;
+}
+
+float LORA::getLastSNR()
+{
+    return m_lastSNR;
 }

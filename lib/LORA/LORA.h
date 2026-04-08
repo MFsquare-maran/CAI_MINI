@@ -92,6 +92,9 @@ public:
     uint32_t getSentCount()     const;
     uint32_t getReceivedCount() const;
 
+    float  getLastRSSI();
+    float  getLastSNR();
+
     // ── Statische ISR (muss public sein fuer setDio1Action) ───
     static void IRAM_ATTR onDio1Interrupt();
 
@@ -128,6 +131,9 @@ private:
 
     SX1262*     m_radio;
     SPIClass*   m_spi;
+
+    float       m_lastRSSI;
+    float       m_lastSNR;
 
     // ── Statisches Interrupt-Flag (geteilt ueber alle Instanzen) ──
     // Wird in der ISR gesetzt und in tryReceive() ausgewertet

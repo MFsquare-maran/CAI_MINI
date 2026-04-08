@@ -168,6 +168,8 @@ void loop()
         Serial.println("  Luftfeuchtigkeit: " + String(packed.humidity,       2) + " %");
         Serial.println("  Gaswiderstand   : " + String(packed.gasResistance,  2) + " kOhm");
         Serial.println("  Batterie        : " + String(packed.batteryVoltage, 2) + " V");
+        Serial.println("  RSSI            : " + String(Lora_gateway.getLastRSSI(), 1) + " dBm");
+        Serial.println("  SNR             : " + String(Lora_gateway.getLastSNR(), 1) + " dB");
 
 
         strlcpy(accessToken, packed.token, sizeof(accessToken));
@@ -180,6 +182,8 @@ void loop()
         tb.sendTelemetryData("Humidity", round(packed.humidity * 100.0) / 100.0);
         tb.sendTelemetryData("Gas_Resistance", round(packed.gasResistance * 100.0) / 100.0);
         tb.sendTelemetryData("Battery_Voltage", round(packed.batteryVoltage * 100.0) / 100.0);
+        tb.sendAttributeData("rssi", round(Lora_gateway.getLastRSSI() * 10.0) / 10.0);
+        tb.sendAttributeData("snr", round(Lora_gateway.getLastSNR() * 10.0) / 10.0);
 
         tb.disconnect();
 
