@@ -1,21 +1,38 @@
 // ============================================================
 //  LORA.cpp
 //  Implementierung der LORA Klasse mit RadioLib / SX1262
-//  Datum:        2026-04-06
+//  Interrupt-basierter Empfang via DIO1
+//  Datum:        2026-04-08
 // ============================================================
 
 #include "LORA.h"
 
 // ============================================================
+//  Statisches Flag — wird in der ISR gesetzt
+// ============================================================
+volatile bool LORA::s_packetFlag = false;
+
+// ============================================================
+//  Statische ISR — wird von RadioLib auf DIO1 aufgerufen
+// ============================================================
+void IRAM_ATTR LORA::onDio1Interrupt()
+{
+    s_packetFlag = true;
+}
+
+// ============================================================
 //  Konstruktor & Destruktor
 // ============================================================
-
 LORA::LORA(const String& ownName,
            LoraMode       mode,
            int            nssPin,
            int            dio1Pin,
            int            resetPin,
            int            busyPin,
+           SPIClass&      spi,
+           int            sckPin,
+           int            misoPin,
+           int            mosiPin,
            const String&  targetName,
            int            maxRetries,
            int            retryDelay,
@@ -28,10 +45,15 @@ LORA::LORA(const String& ownName,
       m_ackTimeout(ackTimeout),
       m_newPacket(false),
       m_sentCount(0),
-      m_receivedCount(0)
+      m_receivedCount(0),
+      m_spi(&spi)
 {
-    // SX1262 Modul mit den uebergebenen Pins erstellen
-    m_radio = new SX1262(new Module(nssPin, dio1Pin, resetPin, busyPin));
+    // SPI Bus mit LoRa-Pins starten
+    m_spi->begin(sckPin, misoPin, mosiPin, nssPin);
+
+    // SX1262 Modul mit eigenem SPI-Bus erstellen
+    m_radio = new SX1262(new Module(nssPin, dio1Pin, resetPin, busyPin,
+                                    *m_spi));
 
     Serial.println("[LORA] Instanz erstellt: " + m_ownName +
                    " | Modus: " + getModeString() +
@@ -46,7 +68,6 @@ LORA::~LORA()
 // ============================================================
 //  Initialisierung
 // ============================================================
-
 bool LORA::begin()
 {
     Serial.println("[LORA] Initialisiere SX1262...");
@@ -58,11 +79,11 @@ bool LORA::begin()
     Serial.println("       Sync Word:    0x" + String(SYNC_WORD, HEX));
 
     int state = m_radio->begin(LORA_FREQ,
-                                LORA_BW,
-                                LORA_SF,
-                                LORA_CR,
-                                SYNC_WORD,
-                                LORA_TX_POWER);
+                               LORA_BW,
+                               LORA_SF,
+                               LORA_CR,
+                               SYNC_WORD,
+                               LORA_TX_POWER);
 
     if (state != RADIOLIB_ERR_NONE)
     {
@@ -71,7 +92,22 @@ bool LORA::begin()
         return false;
     }
 
-    Serial.println("[LORA] Initialisierung erfolgreich!");
+    // ── NEU: DIO2 als RF-Switch (noetig bei vielen SX1262-Modulen) ──
+    m_radio->setDio2AsRfSwitch(true);
+
+    // ── NEU: ISR auf DIO1 registrieren ───────────────────────
+    m_radio->setDio1Action(onDio1Interrupt);
+
+    // ── Nicht-blockierenden Empfang starten ──────────────────
+    state = m_radio->startReceive();
+    if (state != RADIOLIB_ERR_NONE)
+    {
+        Serial.println("[LORA] FEHLER bei startReceive()! Code: " +
+                       String(state));
+        return false;
+    }
+
+    Serial.println("[LORA] Initialisierung erfolgreich! (Interrupt-Modus)");
     return true;
 }
 
@@ -91,6 +127,8 @@ bool LORA::transmit(const String& empfaenger, const String& daten)
         if (!sendRaw(packet))
         {
             Serial.println("[LORA] Senden fehlgeschlagen (RadioLib Fehler)");
+            // Nach fehlgeschlagenem TX wieder in Empfang gehen
+            m_radio->startReceive();
             delay(m_retryDelay);
             continue;
         }
@@ -178,15 +216,8 @@ String LORA::getModeString() const
     }
 }
 
-uint32_t LORA::getSentCount() const
-{
-    return m_sentCount;
-}
-
-uint32_t LORA::getReceivedCount() const
-{
-    return m_receivedCount;
-}
+uint32_t LORA::getSentCount() const  { return m_sentCount;    }
+uint32_t LORA::getReceivedCount() const { return m_receivedCount; }
 
 // ============================================================
 //  Private Hilfsmethoden
@@ -196,7 +227,6 @@ String LORA::buildPacket(const String& empfaenger,
                           const String& typ,
                           const String& daten) const
 {
-    // Format: "EMPFAENGER|SENDER|TYP|DATEN"
     return empfaenger + LORA_PACKET_SEPARATOR +
            m_ownName  + LORA_PACKET_SEPARATOR +
            typ        + LORA_PACKET_SEPARATOR +
@@ -205,18 +235,26 @@ String LORA::buildPacket(const String& empfaenger,
 
 bool LORA::sendRaw(const String& packet)
 {
-    // Lokale nicht-const Kopie erstellen,
-    // da RadioLib transmit(String&) eine non-const Referenz erwartet
     String packetCopy = packet;
+
+    // ── NEU: ISR waehrend TX deaktivieren um Fehlausloesung zu vermeiden ──
+    m_radio->clearDio1Action();
 
     int state = m_radio->transmit(packetCopy);
 
+    // ── NEU: ISR nach TX sofort wieder registrieren ───────────
+    m_radio->setDio1Action(onDio1Interrupt);
+
     if (state == RADIOLIB_ERR_NONE)
     {
+        // ── NEU: Direkt wieder in den Empfangsmodus wechseln ──
+        s_packetFlag = false;          // altes Flag loeschen
+        m_radio->startReceive();
         return true;
     }
 
     Serial.println("[LORA] sendRaw Fehler: " + String(state));
+    m_radio->startReceive();           // auch im Fehlerfall empfangsbereit
     return false;
 }
 
@@ -226,18 +264,19 @@ bool LORA::waitForAck(const String& expectedSender)
 
     while (millis() - startTime < (unsigned long)m_ackTimeout)
     {
+        // ── NEU: Interrupt-basiert pollen ────────────────────
         String incoming = tryReceive();
 
         if (incoming.length() == 0)
         {
-            delay(10);
+            delay(5);   // kurz yield ohne CPU-Blockade
             continue;
         }
 
-        String dest    = splitGet(incoming, 0);  // muss mein Name sein
-        String sender  = splitGet(incoming, 1);  // muss expectedSender sein
-        String typ     = splitGet(incoming, 2);  // muss ACK sein
-        String payload = splitGet(incoming, 3);  // muss "received" sein
+        String dest    = splitGet(incoming, 0);
+        String sender  = splitGet(incoming, 1);
+        String typ     = splitGet(incoming, 2);
+        String payload = splitGet(incoming, 3);
 
         if (dest    == m_ownName      &&
             sender  == expectedSender &&
@@ -266,11 +305,7 @@ void LORA::sendAck(const String& empfaenger)
 bool LORA::isForMe(const String& packet) const
 {
     int firstSep = packet.indexOf(LORA_PACKET_SEPARATOR);
-
-    if (firstSep < 0)
-    {
-        return false;
-    }
+    if (firstSep < 0) return false;
 
     String dest = packet.substring(0, firstSep);
     return (dest == m_ownName);
@@ -278,12 +313,8 @@ bool LORA::isForMe(const String& packet) const
 
 bool LORA::parsePacket(const String& raw)
 {
-    if (!isForMe(raw))
-    {
-        return false;
-    }
+    if (!isForMe(raw)) return false;
 
-    String dest    = splitGet(raw, 0);
     String sender  = splitGet(raw, 1);
     String typ     = splitGet(raw, 2);
     String payload = splitGet(raw, 3);
@@ -294,11 +325,7 @@ bool LORA::parsePacket(const String& raw)
         return false;
     }
 
-    // ACK-Pakete nicht als neue Daten behandeln
-    if (typ == LORA_TYPE_ACK)
-    {
-        return false;
-    }
+    if (typ == LORA_TYPE_ACK) return false;
 
     m_lastRawPacket = raw;
     m_lastSender    = sender;
@@ -311,19 +338,36 @@ bool LORA::parsePacket(const String& raw)
     return true;
 }
 
+// ============================================================
+//  tryReceive — NEU: Interrupt-basiert statt blockierendem receive()
+// ============================================================
 String LORA::tryReceive()
 {
+    // Kein Flag gesetzt -> nichts empfangen
+    if (!s_packetFlag)
+    {
+        return "";
+    }
+
+    // Flag sofort zuruecksetzen (atomar genug auf single-core ESP32-S3 loop)
+    s_packetFlag = false;
+
     String received = "";
-    int state = m_radio->receive(received);
+    int state = m_radio->readData(received);
+
+    // ── Sofort wieder empfangsbereit machen ──────────────────
+    m_radio->startReceive();
 
     if (state == RADIOLIB_ERR_NONE)
     {
+        Serial.println("[LORA] RSSI: " + String(m_radio->getRSSI(), 1) +
+                       " dBm | SNR: " + String(m_radio->getSNR(),  1) + " dB");
         return received;
     }
 
     if (state != RADIOLIB_ERR_RX_TIMEOUT)
     {
-        Serial.println("[LORA] Empfangsfehler: " + String(state));
+        Serial.println("[LORA] Empfangsfehler nach Interrupt: " + String(state));
     }
 
     return "";
@@ -339,13 +383,10 @@ String LORA::splitGet(const String& str, int index) const
         if (i == (int)str.length() || str[i] == LORA_PACKET_SEPARATOR)
         {
             if (found == index)
-            {
                 return str.substring(start, i);
-            }
             found++;
             start = i + 1;
         }
     }
-
     return "";
 }
