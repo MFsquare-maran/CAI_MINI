@@ -14,6 +14,9 @@
  */
 
 #include <Arduino.h>
+#include "config_WIND.h"
+
+uint16_t cnt = 0;
 
 void setup()
 {
@@ -21,12 +24,37 @@ void setup()
     delay(5000); // Warte 5 Sekunden für Serial Debugging
 
     Serial.println("CAI_MINI WIND gestartet.");
+
+    pinMode(WIND_VANE, INPUT);
+    pinMode(WIND_SPEED, INPUT_PULLDOWN); 
+
+
+    pinMode(LED_BLUE, OUTPUT);
+    pinMode(LED_ORANGE, OUTPUT);
+    digitalWrite(LED_BLUE, LOW);
+    digitalWrite(LED_ORANGE, HIGH);
 }
 
 void loop()
 {
     // Hier würden die Sensorwerte gelesen und per LoRa gesendet werden
-    Serial.println("Sensorwerte lesen und senden...");
 
-    delay(5000); // Warte 5 Sekunden bis zum nächsten Lesen/Senden
+
+
+    if(digitalRead(WIND_SPEED) == HIGH) {
+    
+        digitalWrite(LED_BLUE, HIGH);
+    } else {
+        digitalWrite(LED_BLUE, LOW);
+    }
+
+
+    cnt++;
+    if(cnt >=1000)
+    {
+        cnt = 0;
+        Serial.println("Wind Vane: " + String(analogRead(WIND_VANE)));
+    }
+
+    delay(1); // Warte 5 Sekunden bis zum nächsten Lesen/Senden
 }
