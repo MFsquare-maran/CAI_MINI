@@ -4,8 +4,6 @@
  * ============================================================
  *  Beschreibung : Verbindet sich per WLAN und sendet
  *                 Sensordaten (BME680) via MQTT / ThingsBoard
- *                 (WIND Inklusive, das gerät ist permanent mit 
- *                 Strom versorgt, daher wird es nicht heruntergefahren)
  *  Board        : Seeed XIAO ESP32-S3
  *  Framework    : Arduino
  *  Autor        : maran
@@ -14,83 +12,390 @@
  */
 
 #include <Arduino.h>
-#include "config_WIND.h"
 
-uint16_t cnt = 0;
+#include <WiFi.h>                // WiFi-Verbindung
+#include <Arduino_MQTT_Client.h> // MQTT Client
+#include <ThingsBoard.h>         // ThingsBoard Client
+#include "config_WLAN.h"          // Pin-Konfiguration (eigene Header-Datei)
+#include "time.h"                // Zeitfunktionen
+#include "BME680_Sensor.h"       // Sensorbibliothek für BME680
+#include <math.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "FirmwareUpdater.h"     // Firmware-Update-Klasse
+#include <IniFile.h>
+
+#include "soc/rtc.h"
 
 
-float calculate_wind_direction_deg(int sensorValue) {
-    const uint8_t  N_POINTS = 16;
-    const float    deg[N_POINTS]     = { 
-        0.0f, 22.5f,  45.0f,  67.5f,
-        90.0f, 112.5f, 135.0f, 157.5f,
-        180.0f, 202.5f, 225.0f, 247.5f,
-        270.0f, 292.5f, 315.0f, 337.5f };
 
-    const uint16_t adcVals[N_POINTS] = 
-        { 2937, 1464, 1682,  274,
-        312,  210,  645,  431,
-        1021,  861, 2322, 2201,
-        3782, 3125, 3435, 2603 };
+// --- Globale Variablen ---
 
+
+float sending_period = 600000; // Standard: 10 Minuten in Millisekunden
+float last_10min = 0.0;        // Zeitstempel der letzten 10min-Aktualisierung
+float last_update = 0.0;        // Zeitstempel der letzten WIND-Aktualisierung
+
+BME680_Sensor bme;           // Sensorobjekt
+float temperature = 0.0;     // Temperatur
+float pressure = 0.0;        // Luftdruck
+float humidity = 0.0;        // Luftfeuchtigkeit
+float gas_resistance = 0.0;  // Gaswiderstand
+float battery_voltage = 0.0; // Akkuspannung
+float device_direction = 0.0; // Richtung, in die das Gerät zeigt (0° = Norden, 90° = Osten, 180° = Süden, 270° = Westen)
+float wind_vane = 0.0;      // Windrichtung
+float wind_speed_avg = 0.0;     // Windgeschwindigkeit
+float wind_speed_gust = 0.0;     // Max. Windgeschwindigkeit
+float rain_amount = 0.0;   // Regenmenge
+
+
+// Offsets aus INI-Datei für Sensorwerte
+float temperature_offset = 0.0;
+float Pressure_offset = 0.0;
+float Huminity_offset = 0.0;
+float Gas_offset = 0.0;
+float wind_vane_offset = 0.0;
+float wind_speed_offset = 0.0;
+float rain_offset = 0.0;
+
+struct tm timeinfo; // Struktur für lokale Zeit
+
+// WiFi- und ThingsBoard-Zugangsdaten
+char ssid[64];
+char password[64];
+char thingsboardServer[64];
+char accessToken[64];
+
+IniFile ini("/INIT.ini", FILE_READ, true); // INI-Datei-Objekt
+File logfile;                             // Dateiobjekt für Logging
+
+uint16_t THINGSBOARD_PORT;                     // Port für ThingsBoard
+constexpr uint32_t MAX_MESSAGE_SIZE = 1024U;   // Maximalgröße MQTT-Nachrichten
+constexpr uint32_t SERIAL_DEBUG_BAUD = 115200U; // Baudrate für Serial Debugging
+
+WiFiClient wifiClient;                         // WiFi Client für MQTT
+Arduino_MQTT_Client mqttClient(wifiClient);   // MQTT Client
+ThingsBoardSized<32, 10> tb(mqttClient, MAX_MESSAGE_SIZE); // ThingsBoard Client
+
+const char *ntpServer = "ch.pool.ntp.org"; // NTP Server
+const long gmtOffset_sec = 3600;          // Zeitzone: +1h
+const int daylightOffset_sec = 3600;      // Sommerzeit
+
+int cnt = 0; // allgemeiner Zähler
+
+// --- Globale Hilfsvariablen ---
+char datetime[30]; // Speicher für formatierten Zeitstring
+
+
+
+
+
+// Initialisiert WiFi-Verbindung
+void InitWiFi() {
+    //setCpuFrequencyMhz(240);
+    //delay(100);
     
+    Serial.println();
+    Serial.print("Connecting to "); Serial.println(ssid);
+    
+    WiFi.begin(ssid, password, 0, nullptr, true);
+    unsigned long startAttemptTime = millis();
+    const unsigned long timeout = 15000; // 15 Sekunden Timeout
 
-    const uint16_t tolerance = 20;
+    while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < timeout) {
+        delay(500);
+        Serial.print(".");
+    }
 
-    for (uint8_t i = 0; i < N_POINTS; i++) {
-        if ((uint16_t)sensorValue <= adcVals[i] + tolerance &&
-            (uint16_t)sensorValue >= adcVals[i] - tolerance) {
-            return deg[i];
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("\n❌ WiFi konnte nicht verbunden werden.");
+        
+    }
+
+    digitalWrite(LED_ORANGE, HIGH); // LED ein bei Verbindung
+    Serial.println("\n✅ WiFi connected");
+    Serial.println("IP address: ");
+    Serial.println(WiFi.localIP());
+}
+
+
+
+
+void disconnectWiFi() {
+    Serial.println("Disconnecting WiFi...");
+    wifiClient.stop(); 
+    WiFi.disconnect(true);
+    delay(50); // kleiner Puffer
+    WiFi.mode(WIFI_OFF);
+    Serial.println("✅ WiFi disconnected");
+   
+}
+
+// Liest die aktuelle lokale Zeit von NTP
+void LocalTime() {
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+    while (!getLocalTime(&timeinfo)) {
+        Serial.println("Warte auf NTP...");
+        delay(500);
+    }
+    strftime(datetime, sizeof(datetime), "%Y-%m-%d %H:%M:%S", &timeinfo);
+    Serial.print("Aktuelle Zeit: ");
+    Serial.println(datetime);
+}
+
+// Initialisiert die SD-Karte
+void InitSD() {
+    SPI.begin(SD_CLK, SD_MISO, SD_MOSI, SD_CS);
+    if (!SD.begin(SD_CS)) {
+        Serial.println("❌ Fehler: SD-Karte konnte nicht initialisiert werden!");
+        while (1);
+    }
+    Serial.println("✅ SD-Karte erfolgreich initialisiert!");
+}
+
+// Liest alle notwendigen Werte aus der INI-Datei
+void get_ini_values() {
+    if (!ini.open()) {
+        Serial.println("❌ INI-Datei konnte nicht geöffnet werden!");
+        while (1);
+    }
+
+    char buffer[128];
+    if (ini.getValue("GENERAL", "SENDING_PERIOD", buffer, sizeof(buffer))) sending_period = atoi(buffer) * 1000; // Sekunden in Millisekunden
+    if (ini.getValue("WIFI", "SSID", buffer, sizeof(buffer))) strcpy(ssid, buffer);
+    if (ini.getValue("WIFI", "PW", buffer, sizeof(buffer))) strcpy(password, buffer);
+    if (ini.getValue("THINGSBOARD", "TB_ADRESS", buffer, sizeof(buffer))) strcpy(thingsboardServer, buffer);
+    if (ini.getValue("THINGSBOARD", "TB_TOKKEN", buffer, sizeof(buffer))) strcpy(accessToken, buffer);
+    if (ini.getValue("THINGSBOARD", "TB_PORT", buffer, sizeof(buffer))) THINGSBOARD_PORT = atoi(buffer); 
+    if (ini.getValue("BME680", "TEMPERATURE_OFFSET", buffer, sizeof(buffer))) temperature_offset = strtof(buffer, nullptr);
+    if (ini.getValue("BME680", "PRESSURE_OFFSET", buffer, sizeof(buffer))) Pressure_offset = strtof(buffer, nullptr);
+    if (ini.getValue("BME680", "HUMINITY_OFFSET", buffer, sizeof(buffer))) Huminity_offset = strtof(buffer, nullptr);
+    if (ini.getValue("BME680", "GAS_OFFSET", buffer, sizeof(buffer))) Gas_offset = strtof(buffer, nullptr);
+    if (ini.getValue("WIND", "DEVICE_DIRECTION", buffer, sizeof(buffer))) device_direction = strtof(buffer, nullptr);
+    if (ini.getValue("WIND", "WIND_VANE_OFFSET", buffer, sizeof(buffer))) wind_vane_offset = strtof(buffer, nullptr);
+    if (ini.getValue("WIND", "WIND_SPEED_OFFSET", buffer, sizeof(buffer))) wind_speed_offset = strtof(buffer, nullptr);
+    if (ini.getValue("RAIN", "RAIN_OFFSET", buffer, sizeof(buffer))) rain_offset = strtof(buffer, nullptr);
+    // Debug-Ausgabe
+    Serial.println("✅ INI-Werte gelesen:");
+    Serial.print("Sending Period (ms): "); Serial.println(sending_period);
+    Serial.print("SSID: "); Serial.println(ssid);
+    Serial.print("Password: "); Serial.println(password);
+    Serial.print("TB Server: "); Serial.println(thingsboardServer);
+    Serial.print("TB Token: "); Serial.println(accessToken);
+    Serial.print("TB Port: "); Serial.println(THINGSBOARD_PORT);  
+    Serial.print("Temperature Offset: "); Serial.println(temperature_offset);
+    Serial.print("Pressure Offset: "); Serial.println(Pressure_offset);
+    Serial.print("Huminity Offset: "); Serial.println(Huminity_offset);
+    Serial.print("Gas Offset: "); Serial.println(Gas_offset);
+    Serial.print("Device Direction: "); Serial.println(device_direction);
+    Serial.print("Wind Vane Offset: "); Serial.println(wind_vane_offset);
+    Serial.print("Wind Speed Offset: "); Serial.println(wind_speed_offset);
+    Serial.print("Rain Offset: "); Serial.println(rain_offset);
+    ini.close();
+}
+
+
+// Schreibt Sensordaten in die CSV-Datei auf der SD-Karte
+void write_logdata(float temperature, float pressure, float humidity, float gas_resistance, float battery_voltage, float wind_vane, float wind_speed_avg,float wind_speed_gust, float rain_gauge)
+{ 
+    if (!SD.exists("/data.csv")) {
+        logfile = SD.open("/data.csv", FILE_WRITE);
+        logfile.println("Date,Temperature,Pressure,Humidity,Gas_Resistance,Battery_Voltage,Wind_Vane,Wind_Speed_Avg,Wind_Speed_Gust,Rain_Gauge");
+        logfile.close();
+        Serial.println("CSV neu erstellt mit Header.");
+    } else {
+        Serial.println("CSV existiert bereits, kein Header geschrieben.");
+    }
+
+    logfile = SD.open("/data.csv", FILE_APPEND);
+    if (logfile) {  
+        LocalTime(); // datetime global gesetzt 
+        logfile.print(datetime);
+        logfile.print(",");
+        logfile.print(temperature);
+        logfile.print(",");
+        logfile.print(pressure);
+        logfile.print(",");
+        logfile.print(humidity);
+        logfile.print(",");
+        logfile.print(gas_resistance);
+        logfile.print(",");
+        logfile.println(battery_voltage);
+        logfile.print(",");
+        logfile.println(wind_vane);
+        logfile.print(",");
+        logfile.println(wind_speed_avg);
+        logfile.print(",");
+        logfile.println(wind_speed_gust);
+        logfile.print(",");
+        logfile.println(rain_gauge);
+        logfile.close();
+    }
+}
+
+// Initialisiert ThingsBoard-Verbindung
+void InitTB() {
+  Serial.print("Connecting to: ");
+  Serial.print(thingsboardServer);
+  Serial.print(" with token ");
+  Serial.println(accessToken);
+  if (!tb.connect(thingsboardServer, accessToken,THINGSBOARD_PORT)) {
+    Serial.println("Failed to connect to tb");
+  }
+  else {
+    Serial.println("Connected to ThingsBoard");
+  }
+}
+
+// Liest Akkuspannung über ADC und interpoliert
+float getBatteryVoltage() {
+    const uint8_t N_POINTS = 8;
+    const float voltVals[N_POINTS] = {3.5, 3.6, 3.7, 3.8, 3.9, 4.0, 4.1, 4.2};
+    const uint16_t adcVals[N_POINTS] = {2644, 2720, 2801, 2889, 2972, 3060, 3155, 3249};
+
+    uint16_t adcValue = analogRead(BATTERY_VOLTAGE);
+
+    for (uint8_t i = 0; i < N_POINTS - 1; i++) {
+        if (adcValue >= adcVals[i] && adcValue <= adcVals[i + 1]) {
+            float a1 = adcVals[i];
+            float a2 = adcVals[i + 1];
+            float v1 = voltVals[i];
+            float v2 = voltVals[i + 1];
+            return v1 + (adcValue - a1) * (v2 - v1) / (a2 - a1); // lineare Interpolation
         }
     }
-    return -1.0f; // kein passender Wert gefunden
+
+    // Extrapolation: unten
+    if (adcValue < adcVals[0]) {
+        float a1 = adcVals[0];
+        float a2 = adcVals[1];
+        float v1 = voltVals[0];
+        float v2 = voltVals[1];
+        return v1 + (adcValue - a1) * (v2 - v1) / (a2 - a1);
+    }
+
+    // Extrapolation: oben
+    {
+        float a1 = adcVals[N_POINTS - 2];
+        float a2 = adcVals[N_POINTS - 1];
+        float v1 = voltVals[N_POINTS - 2];
+        float v2 = voltVals[N_POINTS - 1];
+        return v1 + (adcValue - a1) * (v2 - v1) / (a2 - a1);
+    }
 }
 
-void setup()
-{
-    Serial.begin(115200);
-    delay(5000); // Warte 5 Sekunden für Serial Debugging
-
-    Serial.println("CAI_MINI WIND gestartet.");
-
-    pinMode(WIND_VANE, INPUT);
-    pinMode(WIND_SPEED, INPUT_PULLDOWN); 
-    pinMode(RAIN_GAUGE, INPUT_PULLDOWN);
 
 
+// --- Setup-Funktion ---
+void setup() {
+
+    
+
+    Serial.begin(SERIAL_DEBUG_BAUD);
+    delay(5000);
+
+    InitSD(); // SD-Karte initialisieren
+
+    // LED-Pins initialisieren
     pinMode(LED_BLUE, OUTPUT);
     pinMode(LED_ORANGE, OUTPUT);
+    pinMode(SHUTDOWN_PIN, OUTPUT);
     digitalWrite(LED_BLUE, LOW);
     digitalWrite(LED_ORANGE, HIGH);
+    digitalWrite(SHUTDOWN_PIN, LOW); 
+
+
+    bme.begin(); // Sensor initialisieren
+
+    get_ini_values(); // INI-Werte lesen
+    bme.set_offset(temperature_offset,Pressure_offset,Huminity_offset,Gas_offset); // Offsets setzen
+
+    setCpuFrequencyMhz(10);
 }
 
-void loop()
-{
-    // Hier würden die Sensorwerte gelesen und per LoRa gesendet werden
+// --- Loop-Funktion ---
+void loop() {
 
+    unsigned long now = millis();
 
+    if (now - last_update >= 1000UL) {
+        last_update = now;
+        // WIND lesen
+        // Hier würden die Funktionen zum Lesen von Windrichtung, Windgeschwindigkeit und Regenmenge
+    }
 
-    if(digitalRead(WIND_SPEED) == HIGH) {
+    if (now - last_10min >= 20000UL) {
+        
+
+        setCpuFrequencyMhz(80);
+        delay(100); 
+
+        if (bme.readSensor()) { // Sensorwerte lesen
+                bme.readSensor();
+                temperature = bme.getTemperature();
+                pressure = bme.getPressure();
+                humidity = bme.getHumidity();
+                gas_resistance = bme.getGasResistance();
+                battery_voltage = getBatteryVoltage();
+
+                // Debug-Ausgabe
+                Serial.println("------------------------------------");
+                Serial.print("Temperature = "); Serial.print(temperature); Serial.println(" °C");
+                Serial.print("Pressure = "); Serial.print(pressure); Serial.println(" hPa");
+                Serial.print("Humidity = "); Serial.print(humidity); Serial.println(" %");
+                Serial.print("Gas Resistance = "); Serial.print(gas_resistance); Serial.println(" kOhms");
+                Serial.print("Battery Voltage = "); Serial.print(battery_voltage); Serial.println(" V");
+                Serial.println("------------------------------------");
+
+                
+            } else {
+                Serial.println("Fehler beim Lesen des BME680 Sensors.");
+            }
+
+            digitalWrite(LED_BLUE, HIGH); // LED an während Daten gesendet werden
+            
+            InitWiFi();   // WiFi verbinden
+
+            Serial.println("\n🔧 Checking for firmware updates...");    
+            FirmwareUpdater updater(thingsboardServer, accessToken, FW_VERSION);    
+            updater.checkAndUpdate(); // Falls Update verfügbar: Download, Install, Reboot
+            
+            LocalTime(); // Zeit synchronisieren
+
+            write_logdata(temperature, pressure, humidity, gas_resistance,battery_voltage,wind_vane,wind_speed_avg,wind_speed_gust,rain_amount); // Daten loggen
+
+            // ThingsBoard-Daten senden
+            InitTB();
+            //tb.loop();
+            tb.sendAttributeData("rssi", WiFi.RSSI());
+            tb.sendAttributeData("channel", WiFi.channel());
+            tb.sendAttributeData("bssid", WiFi.BSSIDstr().c_str());
+            tb.sendAttributeData("localIp", WiFi.localIP().toString().c_str());
+            tb.sendAttributeData("ssid", WiFi.SSID().c_str());
+            tb.sendAttributeData("fwversion", FW_VERSION);
+
+            tb.sendTelemetryData("Temperature", round(bme.getTemperature() * 100.0) / 100.0);
+            tb.sendTelemetryData("Pressure", round(bme.getPressure() * 100.0) / 100.0);
+            tb.sendTelemetryData("Humidity", round(bme.getHumidity() * 100.0) / 100.0);
+            tb.sendTelemetryData("Gas_Resistance", round(bme.getGasResistance() * 100.0) / 100.0);
+            tb.sendTelemetryData("Battery_Voltage", round(battery_voltage * 100.0) / 100.0);
+            tb.sendTelemetryData("Wind_Vane", round(wind_vane * 100.0) / 100.0);
+            tb.sendTelemetryData("Wind_Speed_Avg", round(wind_speed_avg * 100.0) / 100.0);
+            tb.sendTelemetryData("Wind_Speed_Gust", round(wind_speed_gust * 100.0) / 100.0);
+            tb.sendTelemetryData("Rain_Gauge", round(rain_amount * 100.0) / 100.0);
+            tb.loop(); // MQTT-Client loop für ThingsBoard aufrufen, damit die Daten tatsächlich gesendet werden
+            tb.disconnect(); // MQTT-Verbindung trennen
+
+            disconnectWiFi(); // WiFi-Verbindung trennen, um Strom zu sparen
+            digitalWrite(LED_BLUE, LOW); // LED aus nach dem Senden
+
+            setCpuFrequencyMhz(10);
+
+            last_10min = now;
+
+        }
     
-        digitalWrite(LED_BLUE, HIGH);
-    } else {
-        digitalWrite(LED_BLUE, LOW);
-    }
-
-    if(digitalRead(RAIN_GAUGE) == HIGH) {
-        digitalWrite(LED_ORANGE, LOW);
-    } else {
-        digitalWrite(LED_ORANGE, HIGH);
-    }
 
 
-    cnt++;
-    if(cnt >=1000)
-    {
-        cnt = 0;
-        Serial.println("Wind Vane deg: " + String(calculate_wind_direction_deg(analogRead(WIND_VANE))));
-        Serial.println("Wind VANE: " + String(analogRead(WIND_VANE)));
-    }
 
-    delay(1); // Warte 5 Sekunden bis zum nächsten Lesen/Senden
 }

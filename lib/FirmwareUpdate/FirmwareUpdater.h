@@ -34,6 +34,7 @@ private:
     bool downloadFirmwareToSD(const String& downloadPath, const String& version);
     bool updateFromSD(const String& fileName);
     void cleanupOldFirmware();
+    void closeConnection();
 };
 
 #endif

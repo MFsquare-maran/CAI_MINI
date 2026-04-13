@@ -148,7 +148,7 @@ float wind_rain::_get_current_gust() {
 }
 
 // ── Private: Windrichtung berechnen ───────────────────────────────────────────
-float wind_rain::calculate_wind_direction_deg(int sensorValue) {
+float calculate_wind_direction_deg(int sensorValue) {
     const uint8_t  N_POINTS = 16;
     const float    deg[N_POINTS]     = { 
         0.0f, 22.5f,  45.0f,  67.5f,
@@ -156,28 +156,19 @@ float wind_rain::calculate_wind_direction_deg(int sensorValue) {
         180.0f, 202.5f, 225.0f, 247.5f,
         270.0f, 292.5f, 315.0f, 337.5f };
 
-    const uint16_t adcVals[3][N_POINTS] = {
-        { 3143, 1624, 1845,  335,
-        372,  264,  739,  506,
-        1149,  979, 2521, 2398,
-        3781, 3310, 3549, 2811 },
+    const uint16_t adcVals[N_POINTS] = 
+        { 2937, 1464, 1682,  274,
+        312,  210,  645,  431,
+        1021,  861, 2322, 2201,
+        3782, 3125, 3435, 2603 };
 
-        { 3227, 1735, 2122,  354,
-        439,  299,  859,  622,
-        1387, 1064, 2666, 2459,
-        4095, 3430, 3665, 2977 },
+    
 
-        { 2976, 1386, 1734,  298,
-        353,    0,  621,  438,
-        1063,  858, 2458, 2121,
-        3664, 3226, 3429, 2665 }
-    };
-
-    const uint16_t tolerance = 50;
+    const uint16_t tolerance = 20;
 
     for (uint8_t i = 0; i < N_POINTS; i++) {
-        if ((uint16_t)sensorValue <= adcVals[1][i]  &&
-            (uint16_t)sensorValue >= adcVals[2][i] ) {
+        if ((uint16_t)sensorValue <= adcVals[i] + tolerance &&
+            (uint16_t)sensorValue >= adcVals[i] - tolerance) {
             return deg[i];
         }
     }

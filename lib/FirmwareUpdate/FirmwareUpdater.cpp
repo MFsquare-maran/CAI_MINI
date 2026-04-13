@@ -51,6 +51,14 @@ void FirmwareUpdater::cleanupOldFirmware() {
     Serial.println("✅ Cleanup abgeschlossen.");
 }
 
+
+void FirmwareUpdater::closeConnection() {
+    if (_http) {
+        _http->stop();   
+    }
+}
+
+
 bool FirmwareUpdater::checkAndUpdate() {
     Serial.println("🔍 Checking for firmware updates...");
     
@@ -73,6 +81,7 @@ bool FirmwareUpdater::checkAndUpdate() {
         if (response.length() <= 2 || response == "{}" || response == "[]") {
             Serial.println("ℹ️ Keine Firmware-Informationen auf Server verfügbar.");
             Serial.println("✅ Fahre mit aktueller Firmware fort.");
+            closeConnection();
             return false;
         }
         
@@ -82,6 +91,7 @@ bool FirmwareUpdater::checkAndUpdate() {
         if (fwInfo.version.length() == 0) {
             Serial.println("⚠️ Keine Firmware-Version auf Server gefunden.");
             Serial.println("✅ Fahre mit aktueller Firmware fort.");
+            closeConnection();
             return false;
         }
         
@@ -104,16 +114,19 @@ bool FirmwareUpdater::checkAndUpdate() {
             if (downloadFirmwareToSD(downloadPath, fwInfo.version)) {
                 // Von SD-Karte updaten (mit versioniertem Dateinamen)
                 String versionedFile = "/firmware_" + fwInfo.version + ".bin";
+                closeConnection();
                 return updateFromSD(versionedFile);
             }
         } else {
             Serial.println("✅ Firmware is up to date (Version " + _currentVersion + ")");
+            closeConnection();
         }
     } else {
         Serial.println("❌ Failed to check firmware version (HTTP " + String(statusCode) + ")");
         Serial.println("✅ Fahre mit aktueller Firmware fort.");
+        closeConnection();
     }
-    
+    closeConnection();
     return false;
 }
 
