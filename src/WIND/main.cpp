@@ -24,7 +24,7 @@
 #include "freertos/task.h"
 #include "FirmwareUpdater.h"     // Firmware-Update-Klasse
 #include <IniFile.h>
-
+#include "wind_rain.h"
 #include "soc/rtc.h"
 
 
@@ -32,11 +32,13 @@
 // --- Globale Variablen ---
 
 
-float sending_period = 600000; // Standard: 10 Minuten in Millisekunden
-float last_10min = 0.0;        // Zeitstempel der letzten 10min-Aktualisierung
-float last_update = 0.0;        // Zeitstempel der letzten WIND-Aktualisierung
-
+unsigned long sending_period = 600000; // Standard: 10 Minuten in Millisekunden
+unsigned long last_10min = 0;        // Zeitstempel der letzten 10min-Aktualisierung
+unsigned long last_update = 0;        // Zeitstempel der letzten WIND-Aktualisierung
+unsigned long now = 0;                // aktuelle Zeit in Millisekunden
 BME680_Sensor bme;           // Sensorobjekt
+wind_rain windRain;
+
 float temperature = 0.0;     // Temperatur
 float pressure = 0.0;        // Luftdruck
 float humidity = 0.0;        // Luftfeuchtigkeit
@@ -57,6 +59,22 @@ float Gas_offset = 0.0;
 float wind_vane_offset = 0.0;
 float wind_speed_offset = 0.0;
 float rain_offset = 0.0;
+
+
+const uint16_t wind_adc_table[16] = {
+    2937, 1464, 1682, 274,
+    312, 210, 645, 431,
+    1021, 861, 2322, 2201,
+    3782, 3125, 3435, 2603
+};
+
+const float wind_deg_table[16] = {
+    0.0f, 22.5f, 45.0f, 67.5f,
+    90.0f, 112.5f, 135.0f, 157.5f,
+    180.0f, 202.5f, 225.0f, 247.5f,
+    270.0f, 292.5f, 315.0f, 337.5f
+};
+
 
 struct tm timeinfo; // Struktur für lokale Zeit
 
@@ -88,8 +106,6 @@ char datetime[30]; // Speicher für formatierten Zeitstring
 
 
 
-
-
 // Initialisiert WiFi-Verbindung
 void InitWiFi() {
     //setCpuFrequencyMhz(240);
@@ -117,8 +133,6 @@ void InitWiFi() {
     Serial.println("IP address: ");
     Serial.println(WiFi.localIP());
 }
-
-
 
 
 void disconnectWiFi() {
@@ -285,7 +299,6 @@ float getBatteryVoltage() {
 }
 
 
-
 // --- Setup-Funktion ---
 void setup() {
 
@@ -309,23 +322,26 @@ void setup() {
 
     get_ini_values(); // INI-Werte lesen
     bme.set_offset(temperature_offset,Pressure_offset,Huminity_offset,Gas_offset); // Offsets setzen
+    windRain.begin(wind_vane_offset,wind_speed_offset,rain_offset,device_direction,wind_adc_table,wind_deg_table,16); // Wind- und Regenobjekt initialisieren
 
     setCpuFrequencyMhz(10);
+    windRain.enable_interrupts();
+
+    now = millis();
+    last_10min = now + sending_period; 
+
 }
 
 // --- Loop-Funktion ---
 void loop() {
 
-    unsigned long now = millis();
+    now = millis();
 
-    if (now - last_update >= 1000UL) {
-        last_update = now;
-        // WIND lesen
-        // Hier würden die Funktionen zum Lesen von Windrichtung, Windgeschwindigkeit und Regenmenge
-    }
 
-    if (now - last_10min >= 20000UL) {
+
+    if (now - last_10min >= sending_period) {
         
+        windRain.disable_interrupts();
 
         setCpuFrequencyMhz(80);
         delay(100); 
@@ -351,6 +367,19 @@ void loop() {
             } else {
                 Serial.println("Fehler beim Lesen des BME680 Sensors.");
             }
+
+            wind_speed_avg = windRain.get_wind_average();
+            wind_speed_gust = windRain.get_wind_gust();
+            rain_amount = windRain.get_rain();
+            wind_vane = windRain.get_wind_direction_deg();
+            windRain.reset_all();
+
+            Serial.println("------------------------------------");
+            Serial.print("Wind Direction = "); Serial.print(wind_vane); Serial.println(" °");
+            Serial.print("Wind Speed Average = "); Serial.print(wind_speed_avg); Serial.println(" m/s");
+            Serial.print("Wind Speed Gust = "); Serial.print(wind_speed_gust); Serial.println(" m/s");
+            Serial.print("Rain Amount = "); Serial.print(rain_amount); Serial.println(" mm");  
+            Serial.println("------------------------------------");
 
             digitalWrite(LED_BLUE, HIGH); // LED an während Daten gesendet werden
             
@@ -392,7 +421,7 @@ void loop() {
             setCpuFrequencyMhz(10);
 
             last_10min = now;
-
+            windRain.enable_interrupts();
         }
     
 

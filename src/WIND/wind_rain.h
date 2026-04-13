@@ -2,76 +2,81 @@
 #define WIND_RAIN_H
 
 #include <Arduino.h>
+#include "config_WIND.h"
 
-
-// 1. Wind böe stärke --> timer zeit messen --> kleinste zeit = höchste böe
-// 2. Wind stärke --> Anzahl Impulse pro Zeiteinheit (z.B. 10min) zählen
-
-// 10 min messen dann interupt ausschalten und werte nach iot Platform  senden 
-
-
-// Böen-Fenster in Sekunden
 #define GUST_WINDOW_SEC 3
+#define MAX_DIR_POINTS 16
 
 class wind_rain {
 public:
-    // ── Konstruktor ───────────────────────────────────────────────────────────
-    wind_rain(float wind_direction_offset, float wind_speed_offset,
-              float rain_offset, float device_direction);
+    wind_rain();
 
-    // ── Hauptfunktion: jede Sekunde aufrufen ──────────────────────────────────
-    void  update();
+    // ── Initialisierung ─────────────────────────────
+    void begin(float wind_direction_offset,
+               float wind_speed_offset,
+               float rain_offset,
+               float device_direction,
+               const uint16_t *adc_table,
+               const float *deg_table,
+               uint8_t n_points);
 
-    // ── Auslesen: alle 10 Minuten ─────────────────────────────────────────────
-    float get_wind_average();       // Durchschnittlicher Dauerwind (km/h)
-    float get_gust_average();       // Durchschnittliche Böe        (km/h)
-    float get_rain();               // Regenmenge seit letztem Reset (mm)
+    // ── Interrupt Control ────────────────────────────
+    void enable_interrupts();
+    void disable_interrupts();
 
-    // ── Sofortwerte: jederzeit lesbar ─────────────────────────────────────────
-    float get_wind_current();       // Letzter Sekunden-Messwert    (km/h)
-    float get_wind_direction_deg(); // Aktuelle Windrichtung        (°)
+    // ── Auswertung ───────────────────────────────────
+    float get_wind_average();
+    float get_wind_gust();
+    float get_rain();
 
-    // ── Reset: nach dem 10min Auslesen aufrufen ───────────────────────────────
-    void  reset_all();
+    float get_wind_current();
+    float get_wind_direction_deg();
 
-    // ── ISR Zähler (müssen public & static sein) ──────────────────────────────
+    void reset_all();
+
+    // ── ISR counters ────────────────────────────────
     static volatile uint32_t _wind_pulse_count;
     static volatile uint32_t _rain_pulse_count;
 
 private:
-    // ── Konfiguration ─────────────────────────────────────────────────────────
+    // ── Config ──────────────────────────────────────
     float _wind_direction_offset;
     float _wind_speed_offset;
     float _rain_offset;
     float _device_direction;
 
-    // ── Interrupt Hilfsvariablen ──────────────────────────────────────────────
+    // ── ADC calibration ─────────────────────────────
+    const uint16_t *_adc_table;
+    const float *_deg_table;
+    uint8_t _n_points;
+
+    // ── Interrupt timing ────────────────────────────
+    static volatile uint32_t _last_wind_pulse_time;
+    static volatile uint32_t _min_pulse_interval;
+
+    static volatile uint32_t _last_wind_count_time;
     static volatile uint32_t _wind_last_count;
-    static volatile uint32_t _wind_last_time_ms;
 
-    // ── Aktueller Messwert ────────────────────────────────────────────────────
+    // ── Control flag ────────────────────────────────
+    static volatile bool _interrupts_enabled;
+
+    // ── wind calc ────────────────────────────────────
     float _wind_current;
-
-    // ── Dauerwind Akkumulator ─────────────────────────────────────────────────
-    float    _wind_sum;
+    float _wind_sum;
     uint32_t _wind_sample_count;
 
-    // ── Böen: 3s Ringpuffer ───────────────────────────────────────────────────
-    float   _gust_window[GUST_WINDOW_SEC];
-    uint8_t _gust_window_index;
+    // ── internals ────────────────────────────────────
+    float _calc_wind_speed();
+    float _calc_gust();
+    float _calc_direction(int adc);
 
-    // ── Böen Akkumulator ──────────────────────────────────────────────────────
-    float    _gust_sum;
-    uint32_t _gust_sample_count;
-
-    // ── Private Hilfsfunktionen ───────────────────────────────────────────────
-    float _measure_wind_speed();
-    float _get_current_gust();
-    float calculate_wind_direction_deg(int sensorValue);
+    // ── IMPORTANT FIX: ISR access ────────────────────
+    friend void IRAM_ATTR isr_wind_speed();
+    friend void IRAM_ATTR isr_rain_gauge();
 };
 
-// ── ISR Prototypen ────────────────────────────────────────────────────────────
+// ── ISR declarations ────────────────────────────────
 void IRAM_ATTR isr_wind_speed();
 void IRAM_ATTR isr_rain_gauge();
 
-#endif // WIND_RAIN_H
+#endif
