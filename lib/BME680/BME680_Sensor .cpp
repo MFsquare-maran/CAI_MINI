@@ -51,4 +51,36 @@ void BME680_Sensor::set_offset(float temperature,float pressure,float huminity,f
     humidity_Offset = huminity;
     gas_resistance_Offset = gas;
 }
-    
+
+void BME680_Sensor::enable() {
+    Serial.println("🟢 BME680 enabled");
+
+    _bme.setTemperatureOversampling(BME680_OS_8X);
+    _bme.setHumidityOversampling(BME680_OS_2X);
+    _bme.setPressureOversampling(BME680_OS_4X);
+
+    _bme.setIIRFilterSize(BME680_FILTER_SIZE_3);
+
+    // Heater wieder aktivieren
+    _bme.setGasHeater(320, 150);
+
+    _enabled = true;
+}
+
+void BME680_Sensor::disable() {
+    Serial.println("🔴 BME680 disabled (heater off + low power)");
+
+    // Heater AUS
+    _bme.setGasHeater(0, 0);
+
+    // Optional: Oversampling runter = weniger Strom
+    _bme.setTemperatureOversampling(BME680_OS_1X);
+    _bme.setHumidityOversampling(BME680_OS_1X);
+    _bme.setPressureOversampling(BME680_OS_1X);
+
+    _enabled = false;
+}
+
+bool BME680_Sensor::isEnabled() {
+    return _enabled;
+}

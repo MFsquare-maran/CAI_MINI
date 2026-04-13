@@ -345,9 +345,9 @@ void loop() {
 
         setCpuFrequencyMhz(80);
         delay(100); 
-
+        bme.enable();
         if (bme.readSensor()) { // Sensorwerte lesen
-                bme.readSensor();
+                
                 temperature = bme.getTemperature();
                 pressure = bme.getPressure();
                 humidity = bme.getHumidity();
@@ -367,6 +367,7 @@ void loop() {
             } else {
                 Serial.println("Fehler beim Lesen des BME680 Sensors.");
             }
+        bme.disable();
 
             wind_speed_avg = windRain.get_wind_average();
             wind_speed_gust = windRain.get_wind_gust();
