@@ -16,9 +16,7 @@ public:
                float wind_speed_offset,
                float rain_offset,
                float device_direction,
-               const uint16_t *adc_table,
-               const float *deg_table,
-               uint8_t n_points);
+               const uint16_t *adc_table);
 
     // ── Interrupt Control ────────────────────────────
     void enable_interrupts();
@@ -31,6 +29,7 @@ public:
 
     float get_wind_current();
     float get_wind_direction_deg();
+    uint16_t get_wind_direction_raw();
 
     void reset_all();
 
@@ -45,10 +44,15 @@ private:
     float _rain_offset;
     float _device_direction;
 
+    const float _wind_deg_table[16] = {
+    0.0f, 22.5f, 45.0f, 67.5f,
+    90.0f, 112.5f, 135.0f, 157.5f,
+    180.0f, 202.5f, 225.0f, 247.5f,
+    270.0f, 292.5f, 315.0f, 337.5f};
+
     // ── ADC calibration ─────────────────────────────
     const uint16_t *_adc_table;
-    const float *_deg_table;
-    uint8_t _n_points;
+    uint8_t _n_points = 16;
 
     // ── Interrupt timing ────────────────────────────
     static volatile uint32_t _last_wind_pulse_time;

@@ -16,7 +16,7 @@
 #include <WiFi.h>                // WiFi-Verbindung
 #include <Arduino_MQTT_Client.h> // MQTT Client
 #include <ThingsBoard.h>         // ThingsBoard Client
-#include "config_WLAN.h"          // Pin-Konfiguration (eigene Header-Datei)
+#include "config_WIND.h"          // Pin-Konfiguration (eigene Header-Datei)
 #include "time.h"                // Zeitfunktionen
 #include "BME680_Sensor.h"       // Sensorbibliothek für BME680
 #include <math.h>
@@ -60,20 +60,12 @@ float wind_vane_offset = 0.0;
 float wind_speed_offset = 0.0;
 float rain_offset = 0.0;
 
+uint8_t wind_direction_test = 0; // Testvariable für Windrichtung
 
-const uint16_t wind_adc_table[16] = {
-    2937, 1464, 1682, 274,
-    312, 210, 645, 431,
-    1021, 861, 2322, 2201,
-    3782, 3125, 3435, 2603
-};
 
-const float wind_deg_table[16] = {
-    0.0f, 22.5f, 45.0f, 67.5f,
-    90.0f, 112.5f, 135.0f, 157.5f,
-    180.0f, 202.5f, 225.0f, 247.5f,
-    270.0f, 292.5f, 315.0f, 337.5f
-};
+uint16_t wind_adc_table[16];
+
+FirmwareUpdater updater; 
 
 
 struct tm timeinfo; // Struktur für lokale Zeit
@@ -175,7 +167,7 @@ void get_ini_values() {
     }
 
     char buffer[128];
-    if (ini.getValue("GENERAL", "SENDING_PERIOD", buffer, sizeof(buffer))) sending_period = atoi(buffer) * 1000; // Sekunden in Millisekunden
+    if (ini.getValue("GENERAL", "SENDING_PERIOD", buffer, sizeof(buffer))) sending_period = atoi(buffer) * 1000*60; // minuten in Millisekunden
     if (ini.getValue("WIFI", "SSID", buffer, sizeof(buffer))) strcpy(ssid, buffer);
     if (ini.getValue("WIFI", "PW", buffer, sizeof(buffer))) strcpy(password, buffer);
     if (ini.getValue("THINGSBOARD", "TB_ADRESS", buffer, sizeof(buffer))) strcpy(thingsboardServer, buffer);
@@ -189,6 +181,18 @@ void get_ini_values() {
     if (ini.getValue("WIND", "WIND_VANE_OFFSET", buffer, sizeof(buffer))) wind_vane_offset = strtof(buffer, nullptr);
     if (ini.getValue("WIND", "WIND_SPEED_OFFSET", buffer, sizeof(buffer))) wind_speed_offset = strtof(buffer, nullptr);
     if (ini.getValue("RAIN", "RAIN_OFFSET", buffer, sizeof(buffer))) rain_offset = strtof(buffer, nullptr);
+
+    for (size_t i = 0; i < 16; i++)
+    {
+        char key[4];  // Genug Platz für "0".."15" + '\0'
+        snprintf(key, sizeof(key), "%d", (int)i);  // Erzeugt "0", "1", ..., "15"
+
+        if (ini.getValue("WINDADCVALUES", key, buffer, sizeof(buffer)))
+            wind_adc_table[i] = strtof(buffer, nullptr);
+    }
+
+    if (ini.getValue("WINDADCVALUES", "WIND_Direction_TEST", buffer, sizeof(buffer))) wind_direction_test = strtof(buffer, nullptr);
+
     // Debug-Ausgabe
     Serial.println("✅ INI-Werte gelesen:");
     Serial.print("Sending Period (ms): "); Serial.println(sending_period);
@@ -205,6 +209,16 @@ void get_ini_values() {
     Serial.print("Wind Vane Offset: "); Serial.println(wind_vane_offset);
     Serial.print("Wind Speed Offset: "); Serial.println(wind_speed_offset);
     Serial.print("Rain Offset: "); Serial.println(rain_offset);
+    Serial.println("Wind ADC Table:");
+    for (int i = 0; i < 16; i++) {
+        Serial.print("  ADC Value for ");
+        Serial.print(i * 22.5);
+        Serial.print("°: ");
+        Serial.println(wind_adc_table[i]);
+    }
+
+    Serial.print("Wind Direction Test Value: "); Serial.println(wind_direction_test);
+
     ini.close();
 }
 
@@ -302,7 +316,7 @@ float getBatteryVoltage() {
 // --- Setup-Funktion ---
 void setup() {
 
-    
+
 
     Serial.begin(SERIAL_DEBUG_BAUD);
     delay(5000);
@@ -322,7 +336,7 @@ void setup() {
 
     get_ini_values(); // INI-Werte lesen
     bme.set_offset(temperature_offset,Pressure_offset,Huminity_offset,Gas_offset); // Offsets setzen
-    windRain.begin(wind_vane_offset,wind_speed_offset,rain_offset,device_direction,wind_adc_table,wind_deg_table,16); // Wind- und Regenobjekt initialisieren
+    windRain.begin(wind_vane_offset,wind_speed_offset,rain_offset,device_direction,wind_adc_table); // Wind- und Regenobjekt initialisieren
 
     setCpuFrequencyMhz(10);
     windRain.enable_interrupts();
@@ -330,102 +344,112 @@ void setup() {
     now = millis();
     last_10min = now + sending_period; 
 
+
 }
 
 // --- Loop-Funktion ---
 void loop() {
 
-    now = millis();
-
-
-
-    if (now - last_10min >= sending_period) {
-        
-        windRain.disable_interrupts();
-
-        setCpuFrequencyMhz(80);
-        delay(100); 
-        bme.enable();
-        if (bme.readSensor()) { // Sensorwerte lesen
-                
-                temperature = bme.getTemperature();
-                pressure = bme.getPressure();
-                humidity = bme.getHumidity();
-                gas_resistance = bme.getGasResistance();
-                battery_voltage = getBatteryVoltage();
-
-                // Debug-Ausgabe
-                Serial.println("------------------------------------");
-                Serial.print("Temperature = "); Serial.print(temperature); Serial.println(" °C");
-                Serial.print("Pressure = "); Serial.print(pressure); Serial.println(" hPa");
-                Serial.print("Humidity = "); Serial.print(humidity); Serial.println(" %");
-                Serial.print("Gas Resistance = "); Serial.print(gas_resistance); Serial.println(" kOhms");
-                Serial.print("Battery Voltage = "); Serial.print(battery_voltage); Serial.println(" V");
-                Serial.println("------------------------------------");
-
-                
-            } else {
-                Serial.println("Fehler beim Lesen des BME680 Sensors.");
-            }
-        bme.disable();
-
-            wind_speed_avg = windRain.get_wind_average();
-            wind_speed_gust = windRain.get_wind_gust();
-            rain_amount = windRain.get_rain();
-            wind_vane = windRain.get_wind_direction_deg();
-            windRain.reset_all();
-
-            Serial.println("------------------------------------");
-            Serial.print("Wind Direction = "); Serial.print(wind_vane); Serial.println(" °");
-            Serial.print("Wind Speed Average = "); Serial.print(wind_speed_avg); Serial.println(" m/s");
-            Serial.print("Wind Speed Gust = "); Serial.print(wind_speed_gust); Serial.println(" m/s");
-            Serial.print("Rain Amount = "); Serial.print(rain_amount); Serial.println(" mm");  
-            Serial.println("------------------------------------");
-
-            digitalWrite(LED_BLUE, HIGH); // LED an während Daten gesendet werden
-            
-            InitWiFi();   // WiFi verbinden
-
-            Serial.println("\n🔧 Checking for firmware updates...");    
-            FirmwareUpdater updater(thingsboardServer, accessToken, FW_VERSION);    
-            updater.checkAndUpdate(); // Falls Update verfügbar: Download, Install, Reboot
-            
-            LocalTime(); // Zeit synchronisieren
-
-            write_logdata(temperature, pressure, humidity, gas_resistance,battery_voltage,wind_vane,wind_speed_avg,wind_speed_gust,rain_amount); // Daten loggen
-
-            // ThingsBoard-Daten senden
-            InitTB();
-            //tb.loop();
-            tb.sendAttributeData("rssi", WiFi.RSSI());
-            tb.sendAttributeData("channel", WiFi.channel());
-            tb.sendAttributeData("bssid", WiFi.BSSIDstr().c_str());
-            tb.sendAttributeData("localIp", WiFi.localIP().toString().c_str());
-            tb.sendAttributeData("ssid", WiFi.SSID().c_str());
-            tb.sendAttributeData("fwversion", FW_VERSION);
-
-            tb.sendTelemetryData("Temperature", round(bme.getTemperature() * 100.0) / 100.0);
-            tb.sendTelemetryData("Pressure", round(bme.getPressure() * 100.0) / 100.0);
-            tb.sendTelemetryData("Humidity", round(bme.getHumidity() * 100.0) / 100.0);
-            tb.sendTelemetryData("Gas_Resistance", round(bme.getGasResistance() * 100.0) / 100.0);
-            tb.sendTelemetryData("Battery_Voltage", round(battery_voltage * 100.0) / 100.0);
-            tb.sendTelemetryData("Wind_Vane", round(wind_vane * 100.0) / 100.0);
-            tb.sendTelemetryData("Wind_Speed_Avg", round(wind_speed_avg * 100.0) / 100.0);
-            tb.sendTelemetryData("Wind_Speed_Gust", round(wind_speed_gust * 100.0) / 100.0);
-            tb.sendTelemetryData("Rain_Gauge", round(rain_amount * 100.0) / 100.0);
-            tb.loop(); // MQTT-Client loop für ThingsBoard aufrufen, damit die Daten tatsächlich gesendet werden
-            tb.disconnect(); // MQTT-Verbindung trennen
-
-            disconnectWiFi(); // WiFi-Verbindung trennen, um Strom zu sparen
-            digitalWrite(LED_BLUE, LOW); // LED aus nach dem Senden
-
-            setCpuFrequencyMhz(10);
-
-            last_10min = now;
-            windRain.enable_interrupts();
-        }
+    if(wind_direction_test == 1) {
     
+        Serial.print("Wind Direction ADC Test Value: ");
+        Serial.println(windRain.get_wind_direction_raw());
+        delay(1000);
 
+    }else
+    {
+            now = millis();
+
+
+
+            if (now - last_10min >= sending_period) {
+
+            windRain.disable_interrupts();
+
+            setCpuFrequencyMhz(80);
+            delay(100); 
+            bme.enable();
+            if (bme.readSensor()) { // Sensorwerte lesen
+                    
+                    temperature = bme.getTemperature();
+                    pressure = bme.getPressure();
+                    humidity = bme.getHumidity();
+                    gas_resistance = bme.getGasResistance();
+                    battery_voltage = getBatteryVoltage();
+
+                    // Debug-Ausgabe
+                    Serial.println("------------------------------------");
+                    Serial.print("Temperature = "); Serial.print(temperature); Serial.println(" °C");
+                    Serial.print("Pressure = "); Serial.print(pressure); Serial.println(" hPa");
+                    Serial.print("Humidity = "); Serial.print(humidity); Serial.println(" %");
+                    Serial.print("Gas Resistance = "); Serial.print(gas_resistance); Serial.println(" kOhms");
+                    Serial.print("Battery Voltage = "); Serial.print(battery_voltage); Serial.println(" V");
+                    Serial.println("------------------------------------");
+
+                    
+                } else {
+                    Serial.println("Fehler beim Lesen des BME680 Sensors.");
+                }
+            bme.disable();
+
+                wind_speed_avg = windRain.get_wind_average();
+                wind_speed_gust = windRain.get_wind_gust();
+                rain_amount = windRain.get_rain();
+                wind_vane = windRain.get_wind_direction_deg();
+                windRain.reset_all();
+
+                Serial.println("------------------------------------");
+                Serial.print("Wind Direction = "); Serial.print(wind_vane); Serial.println(" °");
+                Serial.print("Wind Speed Average = "); Serial.print(wind_speed_avg); Serial.println(" m/s");
+                Serial.print("Wind Speed Gust = "); Serial.print(wind_speed_gust); Serial.println(" m/s");
+                Serial.print("Rain Amount = "); Serial.print(rain_amount); Serial.println(" mm");  
+                Serial.println("------------------------------------");
+
+                digitalWrite(LED_BLUE, HIGH); // LED an während Daten gesendet werden
+                
+                InitWiFi();   // WiFi verbinden
+
+                Serial.println("\n🔧 Checking for firmware updates...");    
+                 
+                updater.checkAndUpdate(thingsboardServer, accessToken, FW_VERSION);
+               
+                
+                LocalTime(); // Zeit synchronisieren
+
+                write_logdata(temperature, pressure, humidity, gas_resistance,battery_voltage,wind_vane,wind_speed_avg,wind_speed_gust,rain_amount); // Daten loggen
+
+                // ThingsBoard-Daten senden
+                InitTB();
+                //tb.loop();
+                tb.sendAttributeData("rssi", WiFi.RSSI());
+                tb.sendAttributeData("channel", WiFi.channel());
+                tb.sendAttributeData("bssid", WiFi.BSSIDstr().c_str());
+                tb.sendAttributeData("localIp", WiFi.localIP().toString().c_str());
+                tb.sendAttributeData("ssid", WiFi.SSID().c_str());
+                tb.sendAttributeData("fwversion", FW_VERSION);
+
+                tb.sendTelemetryData("Temperature", round(bme.getTemperature() * 100.0) / 100.0);
+                tb.sendTelemetryData("Pressure", round(bme.getPressure() * 100.0) / 100.0);
+                tb.sendTelemetryData("Humidity", round(bme.getHumidity() * 100.0) / 100.0);
+                tb.sendTelemetryData("Gas_Resistance", round(bme.getGasResistance() * 100.0) / 100.0);
+                tb.sendTelemetryData("Battery_Voltage", round(battery_voltage * 100.0) / 100.0);
+                tb.sendTelemetryData("Wind_Vane", round(wind_vane * 100.0) / 100.0);
+                tb.sendTelemetryData("Wind_Speed_Avg", round(wind_speed_avg * 100.0) / 100.0);
+                tb.sendTelemetryData("Wind_Speed_Gust", round(wind_speed_gust * 100.0) / 100.0);
+                tb.sendTelemetryData("Rain_Gauge", round(rain_amount * 100.0) / 100.0);
+                tb.loop(); // MQTT-Client loop für ThingsBoard aufrufen, damit die Daten tatsächlich gesendet werden
+                tb.disconnect(); // MQTT-Verbindung trennen
+
+                disconnectWiFi(); // WiFi-Verbindung trennen, um Strom zu sparen
+                digitalWrite(LED_BLUE, LOW); // LED aus nach dem Senden
+
+                setCpuFrequencyMhz(10);
+
+                last_10min = now;
+                windRain.enable_interrupts();
+            }
+    
+    }
 
 
 }

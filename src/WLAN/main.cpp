@@ -18,7 +18,7 @@
 #include <WiFi.h>                // WiFi-Verbindung
 #include <Arduino_MQTT_Client.h> // MQTT Client
 #include <ThingsBoard.h>         // ThingsBoard Client
-#include "pin_config_WLAN.h"          // Pin-Konfiguration (eigene Header-Datei)
+#include "config_WLAN.h"          // Pin-Konfiguration (eigene Header-Datei)
 #include "time.h"                // Zeitfunktionen
 #include "BME680_Sensor.h"       // Sensorbibliothek für BME680
 #include <math.h>
@@ -47,6 +47,8 @@ float Huminity_offset = 0.0;
 float Gas_offset = 0.0;
 
 struct tm timeinfo; // Struktur für lokale Zeit
+
+FirmwareUpdater updater; // Firmware-Update-Objekt
 
 // WiFi- und ThingsBoard-Zugangsdaten
 char ssid[64];
@@ -286,20 +288,20 @@ void setup() {
 
     // ✅ FIRMWARE-UPDATE NACH WIFI-VERBINDUNG    
     Serial.println("\n🔧 Checking for firmware updates...");    
-    FirmwareUpdater updater(thingsboardServer, accessToken, FW_VERSION);    updater.checkAndUpdate(); // Falls Update verfügbar: Download, Install, Reboot
+    updater.checkAndUpdate(thingsboardServer, accessToken, FW_VERSION); // Falls Update verfügbar: Download, Install, Reboot
 
     LocalTime();  // Zeit synchronisieren
     InitTB();     // ThingsBoard verbinden
 
     digitalWrite(LED_BLUE, HIGH);
-
+    bme.enable();
     if (bme.readSensor()) { // Sensorwerte lesen
-        bme.readSensor();
         temperature = bme.getTemperature();
         pressure = bme.getPressure();
         humidity = bme.getHumidity();
         gas_resistance = bme.getGasResistance();
         battery_voltage = getBatteryVoltage();
+        bme.disable();
 
         // Debug-Ausgabe
         Serial.print("Temperature = "); Serial.print(temperature); Serial.println(" °C");

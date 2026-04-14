@@ -15,21 +15,22 @@ struct FirmwareInfo {
 
 class FirmwareUpdater {
 public:
-    FirmwareUpdater(const char* server, const char* token, const String& currentVersion);
-    
-    bool checkAndUpdate();
-    void setCurrentVersion(const String& version);
-    String getCurrentVersion() const;
-    
+    FirmwareUpdater();
+
+    bool checkAndUpdate(const char* server,
+                        const char* token,
+                        const String& currentVersion);
+
 private:
     const char* _server;
     const char* _deviceToken;
     String _currentVersion;
+
     const char* _firmwareFile = "/firmware.bin";
-    
+
     WiFiClientSecure _wifiClient;
     HttpClient* _http;
-    
+
     FirmwareInfo extractFirmwareInfo(const String& payload);
     bool downloadFirmwareToSD(const String& downloadPath, const String& version);
     bool updateFromSD(const String& fileName);

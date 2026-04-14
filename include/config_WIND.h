@@ -23,8 +23,6 @@
 
 #define SHUTDOWN_PIN 8
 
-#define SENDING_PERIOD 600000 // 5 minutes in milliseconds
 
 
-
-#define FW_VERSION "1.0.5" // Firmware-Version
+#define FW_VERSION "1.0.7_WIND" // Firmware-Version

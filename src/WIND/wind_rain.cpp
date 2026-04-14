@@ -43,7 +43,6 @@ wind_rain::wind_rain()
   _rain_offset(0),
   _device_direction(0),
   _adc_table(nullptr),
-  _deg_table(nullptr),
   _n_points(0),
   _wind_current(0),
   _wind_sum(0),
@@ -55,9 +54,7 @@ void wind_rain::begin(float wind_direction_offset,
                        float wind_speed_offset,
                        float rain_offset,
                        float device_direction,
-                       const uint16_t *adc_table,
-                       const float *deg_table,
-                       uint8_t n_points)
+                       const uint16_t *adc_table)
 {
     _wind_direction_offset = wind_direction_offset;
     _wind_speed_offset = wind_speed_offset;
@@ -65,8 +62,7 @@ void wind_rain::begin(float wind_direction_offset,
     _device_direction = device_direction;
 
     _adc_table = adc_table;
-    _deg_table = deg_table;
-    _n_points = n_points;
+    
 
     pinMode(WIND_VANE, INPUT);
     pinMode(WIND_SPEED, INPUT_PULLDOWN);
@@ -121,11 +117,10 @@ float wind_rain::_calc_gust() {
 
 // ── wind direction ──────────────────────────────────────
 float wind_rain::_calc_direction(int adc) {
+
     for (uint8_t i = 0; i < _n_points; i++) {
         if (abs((int)_adc_table[i] - adc) < 20) {
-            float deg = _deg_table[i] + _wind_direction_offset;
-            if (deg < 0) deg += 360;
-            if (deg >= 360) deg -= 360;
+            float deg = _wind_deg_table[i] + _wind_direction_offset;
             return deg;
         }
     }
@@ -157,6 +152,10 @@ float wind_rain::get_wind_direction_deg() {
     return _calc_direction(analogRead(WIND_VANE));
 }
 
+uint16_t wind_rain::get_wind_direction_raw() {
+    return analogRead(WIND_VANE);
+}
+
 // ── reset ───────────────────────────────────────────────
 void wind_rain::reset_all() {
     noInterrupts();
@@ -166,3 +165,4 @@ void wind_rain::reset_all() {
 
     _min_pulse_interval = 0xFFFFFFFF;
 }
+
