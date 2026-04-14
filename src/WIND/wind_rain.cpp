@@ -99,7 +99,7 @@ float wind_rain::_calc_wind_speed() {
     if (dt == 0) return 0;
 
     float hz = (float)count / ((float)dt / 1000.0f);
-    return hz * 2.4f + _wind_speed_offset;
+    return hz * _wind_factor + _wind_speed_offset;
 }
 
 // ── gust = min pulse interval ───────────────────────────
@@ -110,7 +110,7 @@ float wind_rain::_calc_gust() {
 
     if (seconds <= 0) return 0;
 
-    float speed = (1.0f / seconds) * 2.4f;
+    float speed = (1.0f / seconds) * _wind_factor;
 
     return speed + _wind_speed_offset;
 }
@@ -141,7 +141,7 @@ float wind_rain::get_rain() {
     uint32_t c = _rain_pulse_count;
     interrupts();
 
-    return c * 0.2794f + _rain_offset;
+    return c * _rain_factor + _rain_offset;
 }
 
 float wind_rain::get_wind_current() {

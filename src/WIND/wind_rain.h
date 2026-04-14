@@ -44,6 +44,9 @@ private:
     float _rain_offset;
     float _device_direction;
 
+    float _wind_factor = 2.4; // Umrechnungsfaktor von Pulsfrequenz zu Windgeschwindigkeit (m/s pro Hz)
+    float _rain_factor = 0.2794; // Umrechnungsfaktor von Puls zu Regenmenge (mm pro Puls)
+
     const float _wind_deg_table[16] = {
     0.0f, 22.5f, 45.0f, 67.5f,
     90.0f, 112.5f, 135.0f, 157.5f,
