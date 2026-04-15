@@ -27,7 +27,7 @@
 #include "FirmwareUpdater.h"     // Firmware-Update-Klasse
 
 
-TaskHandle_t timerTaskHandle = NULL; // Handle für den Timer-Task
+TaskHandle_t timerTaskforshutdwonHandle = NULL; // Handle für den Timer-Task
 
 // --- Globale Variablen ---
 IniFile ini("/INIT.ini", FILE_READ, true); // INI-Datei-Objekt
@@ -86,6 +86,7 @@ void system_shutdown() {
     digitalWrite(SHUTDOWN_PIN, LOW);
     delay(50);
     digitalWrite(SHUTDOWN_PIN, HIGH);
+    
 }
 
 // Initialisiert die SD-Karte
@@ -247,7 +248,7 @@ float getBatteryVoltage() {
 }
 
 // Task, der nach TIMER_LIMIT_SEC Sekunden das System herunterfährt
-void timerTask(void *parameter) {
+void timerTaskforshutdwon(void *parameter) {
     for (int sec = 0; sec < TIMER_LIMIT_SEC; sec++) {
         vTaskDelay(pdMS_TO_TICKS(1000)); // 1 Sekunde warten
     }
@@ -270,7 +271,7 @@ void setup() {
 
 
 
-    xTaskCreatePinnedToCore(timerTask,"TimerTask",2048,NULL,1,&timerTaskHandle,0); // Timer-Task starten
+    xTaskCreatePinnedToCore(timerTaskforshutdwon,"TimerTask",2048,NULL,1,&timerTaskforshutdwonHandle,0); // Timer-Task starten
 
     // LED-Pins initialisieren
     pinMode(LED_BLUE, OUTPUT);
@@ -285,10 +286,14 @@ void setup() {
 
     InitWiFi();   // WiFi verbinden
 
+    
+    vTaskSuspend(timerTaskforshutdwonHandle);
 
     // ✅ FIRMWARE-UPDATE NACH WIFI-VERBINDUNG    
     Serial.println("\n🔧 Checking for firmware updates...");    
     updater.checkAndUpdate(thingsboardServer, accessToken, FW_VERSION); // Falls Update verfügbar: Download, Install, Reboot
+    
+    vTaskResume(timerTaskforshutdwonHandle); // Timer-Task fortsetzen
 
     LocalTime();  // Zeit synchronisieren
     InitTB();     // ThingsBoard verbinden

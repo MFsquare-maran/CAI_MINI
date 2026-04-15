@@ -22,4 +22,4 @@
 
 
 
-#define FW_VERSION "1.0.6_WLAN" // Firmware-Version
+#define FW_VERSION "1.1.0_WLAN" // Firmware-Version
