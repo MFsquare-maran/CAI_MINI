@@ -5,19 +5,17 @@
 //  Beschreibung: LoRa Kommunikationsklasse fuer ESP32
 //                Unterstuetzt: SENSOR, ROUTER, GATEWAY
 //  Library:      RadioLib (SX1262)
-//  Datum:        2026-04-16
-//  Fixes:        - s_packetFlag korrekt genutzt
-//                - Deadlock-Fix in waitForAck()
-//                - Deep Sleep / forcePacketFlag() Support
+//  Datum:        2026-04-06
 // ============================================================
+
+
 
 #include <Arduino.h>
 #include <SPI.h>
 #include <RadioLib.h>
-#include "esp_sleep.h"
 
 // ============================================================
-//  Konstanten
+//  Konstanten (in config_LORA_*.h definieren oder hier)
 // ============================================================
 #ifndef LORA_FREQ
   #define LORA_FREQ      868.0f
@@ -44,13 +42,25 @@
 #define LORA_ACK_PAYLOAD       "received"
 
 // ============================================================
+//  Betriebsmodi
+// ============================================================
+enum class LoraMode
+{
+    SENSOR,
+    ROUTER,
+    GATEWAY
+};
+
+// ============================================================
 //  LORA Klasse
 // ============================================================
 class LORA
 {
 public:
     // ── Konstruktor / Destruktor ──────────────────────────────
-    LORA(int            nssPin,
+    LORA(const String& ownName,
+         LoraMode       mode,
+         int            nssPin,
          int            dio1Pin,
          int            resetPin,
          int            busyPin,
@@ -58,6 +68,7 @@ public:
          int            sckPin,
          int            misoPin,
          int            mosiPin,
+         const String&  targetName  = "",
          int            maxRetries  = 3,
          int            retryDelay  = 1000,
          int            ackTimeout  = 2000);
@@ -65,7 +76,7 @@ public:
     ~LORA();
 
     // ── Initialisierung ───────────────────────────────────────
-    bool begin(const String& ownName);
+    bool begin();
 
     // ── Oeffentliche Methoden ─────────────────────────────────
     bool    transmit(const String& empfaenger, const String& daten);
@@ -75,19 +86,14 @@ public:
     String  readRawPacket();
     String  readSender();
 
+    void    setTargetName(const String& targetName);
+    String  getModeString() const;
+
     uint32_t getSentCount()     const;
     uint32_t getReceivedCount() const;
 
-    float   getLastRSSI();
-    float   getLastSNR();
-
-    // ── Deep Sleep Support ────────────────────────────────────
-    // Setzt s_packetFlag manuell (nach Wake-Up aus Deep Sleep)
-    void    forcePacketFlag();
-
-    // Aktiviert EXT0 Wake-Up auf DIO1 und startet Deep Sleep
-    void    deepSleepUntilPacketorTimer(uint16_t sleepTimeSeconds);
-    void    deepSleepUntilTimer(uint16_t sleepTimeSeconds);
+    float  getLastRSSI();
+    float  getLastSNR();
 
     // ── Statische ISR (muss public sein fuer setDio1Action) ───
     static void IRAM_ATTR onDio1Interrupt();
@@ -108,12 +114,12 @@ private:
 
     // ── Member-Variablen ──────────────────────────────────────
     String      m_ownName;
+    String      m_targetName;
+    LoraMode    m_mode;
 
     int         m_maxRetries;
     int         m_retryDelay;
     int         m_ackTimeout;
-
-    int         m_dio1Pin;       // gespeichert fuer Deep Sleep EXT0
 
     bool        m_newPacket;
     uint32_t    m_sentCount;
@@ -129,7 +135,7 @@ private:
     float       m_lastRSSI;
     float       m_lastSNR;
 
-    // ── Statisches Interrupt-Flag ─────────────────────────────
-    // Wird in ISR gesetzt, in tryReceive() ausgewertet
+    // ── Statisches Interrupt-Flag (geteilt ueber alle Instanzen) ──
+    // Wird in der ISR gesetzt und in tryReceive() ausgewertet
     static volatile bool s_packetFlag;
 };

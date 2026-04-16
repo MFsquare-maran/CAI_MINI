@@ -1,3 +1,8 @@
+// ============================================================
+//  main.cpp  —  CAI_MINI LoRa Gateway
+//  SX1262 via RadioLib | ThingsBoard MQTT
+//  Datum: 2026-04-16
+// ============================================================
 
 #include "config_LORA_GATEWAY.h"
 #include <Arduino.h>
@@ -6,189 +11,210 @@
 #include <WiFi.h>
 #include <Arduino_MQTT_Client.h>
 #include <ThingsBoard.h>
-#include <IniFile.h> 
 
+// ============================================================
+//  Netzwerk & ThingsBoard Konfiguration
+// ============================================================
+const char* WIFI_SSID       = "TP-Link_MF";
+const char* WIFI_PASSWORD   = "MFFunkturm";
+const char* TB_SERVER       = "iot.mfsquare.ch";
+const uint16_t TB_PORT      = 1884;
 
-char ssid[64];
-char password[64];
-char thingsboardServer[64];
-char accessToken[64];
-uint16_t THINGSBOARD_PORT;
+char accessToken[64] = {0};
 
+// ============================================================
+//  MQTT / ThingsBoard Objekte
+// ============================================================
+constexpr uint32_t MAX_MESSAGE_SIZE = 1024U;
 
+WiFiClient            wifiClient;
+Arduino_MQTT_Client   mqttClient(wifiClient);
+ThingsBoardSized<32, 10> tb(mqttClient, MAX_MESSAGE_SIZE);
 
-
-// ═════════════════════════════════════════════════════════════
-//  wieder raus§
-
-IniFile ini("/INIT.ini", FILE_READ, true); // INI-Datei-Objekt
-SPIClass spi_sd(HSPI);    // SD-Karte  → HSPI Bus
-
-// ═════════════════════════════════════════════════════════════
-
-
-constexpr uint32_t MAX_MESSAGE_SIZE = 1024U;   // Maximalgröße MQTT-Nachrichten
-
-
-WiFiClient wifiClient;                         // WiFi Client für MQTT
-Arduino_MQTT_Client mqttClient(wifiClient);   // MQTT Client
-ThingsBoardSized<32, 10> tb(mqttClient, MAX_MESSAGE_SIZE); // ThingsBoard Client
-
-
-
-// ------------------------------------------------------------
-//  GATEWAY Instanz
-//  - Kein Zielgeraet noetig (Gateway ist Endpunkt)
-//  - targetName = "" da Gateway nichts weiterleitet
-// ------------------------------------------------------------
-//LORA Lora_gateway("GATEWAY01", LoraMode::GATEWAY, LORA_NSS, LORA_DIO1, LORA_RESET, LORA_BUSY, "", 3, 500, 2000);
-
-
+// ============================================================
+//  SPI + LoRa Objekte
+// ============================================================
 SPIClass spi_lora(FSPI);
 
 LORA Lora_gateway(
-    "GATEWAY01",
-    LoraMode::GATEWAY,
     LORA_NSS,
     LORA_DIO1,
     LORA_RESET,
     LORA_BUSY,
-    spi_lora,                            // ← NEU: eigener SPI Bus
-    LORA_SCK,                            // ← NEU: SCK Pin
-    LORA_MISO,                           // ← NEU: MISO Pin
-    LORA_MOSI,                           // ← NEU: MOSI Pin
-    "",                                  // targetName (Gateway braucht keins)
-    5,
-    1000,
-    2000
+    spi_lora,
+    LORA_SCK,
+    LORA_MISO,
+    LORA_MOSI,
+    3,      // maxRetries
+    500,    // retryDelay  [ms]
+    2000    // ackTimeout  [ms]
 );
 
+// ============================================================
+//  WiFi initialisieren
+// ============================================================
+void InitWiFi()
+{
+    Serial.println("[WIFI] Verbinde mit: " + String(WIFI_SSID));
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD, 0, nullptr, true);
 
-void InitSD() {
-    spi_sd.begin(SD_CLK, SD_MISO, SD_MOSI, SD_CS);
-    if (!SD.begin(SD_CS, spi_sd)) {           // ← spi_sd hinzugefuegt!
-        Serial.println("Fehler: SD-Karte konnte nicht initialisiert werden!");
-        while (1);
-    }
-    Serial.println("SD-Karte erfolgreich initialisiert!");
-}
+    unsigned long start   = millis();
+    const uint32_t TIMEOUT = 15000UL;
 
-
-void InitWiFi() {
-    Serial.println();
-    Serial.print("Connecting to "); Serial.println(ssid);
-    WiFi.begin(ssid, password, 0, nullptr, true);
-    unsigned long startAttemptTime = millis();
-    const unsigned long timeout = 15000; // 15 Sekunden Timeout
-
-    while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < timeout) {
+    while (WiFi.status() != WL_CONNECTED &&
+           millis() - start < TIMEOUT)
+    {
         delay(500);
         Serial.print(".");
-        digitalWrite(LED_ORANGE, !digitalRead(LED_ORANGE)); // blinkende LED während Verbindung
+        digitalWrite(LED_ORANGE, !digitalRead(LED_ORANGE)); // blinken
     }
 
-    digitalWrite(LED_ORANGE, LOW); // LED ein bei Verbindung
-    Serial.println("\n✅ WiFi connected");
-    Serial.println("IP address: ");
-    Serial.println(WiFi.localIP());
+    digitalWrite(LED_ORANGE, LOW);
+
+    if (WiFi.status() == WL_CONNECTED)
+    {
+        Serial.println("\n[WIFI] ✅ Verbunden!");
+        Serial.println("[WIFI] IP: " + WiFi.localIP().toString());
+    }
+    else
+    {
+        Serial.println("\n[WIFI] ❌ Verbindung fehlgeschlagen (Timeout)!");
+    }
 }
 
+// ============================================================
+//  ThingsBoard verbinden
+// ============================================================
+bool InitTB()
+{
+    Serial.println("[TB] Verbinde mit: " + String(TB_SERVER) +
+                   " | Token: "         + String(accessToken));
 
-void get_ini_values() {
-    if (!ini.open()) {
-        Serial.println("❌ INI-Datei konnte nicht geöffnet werden!");
-        while (1);
+    if (!tb.connect(TB_SERVER, accessToken, TB_PORT))
+    {
+        Serial.println("[TB] ❌ Verbindung fehlgeschlagen!");
+        return false;
     }
 
-    char buffer[128];
-    if (ini.getValue("WIFI", "SSID", buffer, sizeof(buffer))) strcpy(ssid, buffer);
-    if (ini.getValue("WIFI", "PW", buffer, sizeof(buffer))) strcpy(password, buffer);
-    if (ini.getValue("THINGSBOARD", "TB_ADRESS", buffer, sizeof(buffer))) strcpy(thingsboardServer, buffer);
-    if (ini.getValue("THINGSBOARD", "TB_PORT", buffer, sizeof(buffer))) THINGSBOARD_PORT = atoi(buffer);
-
-
-    // Debug-Ausgabe
-    Serial.println("✅ INI-Werte gelesen:");
-    Serial.print("SSID: "); Serial.println(ssid);
-    Serial.print("Password: "); Serial.println(password);
-    Serial.print("TB Server: "); Serial.println(thingsboardServer);
-    Serial.print("TB Port: "); Serial.println(THINGSBOARD_PORT); 
-    ini.close();
-    SD.end(); 
+    Serial.println("[TB] ✅ Verbunden!");
+    return true;
 }
 
-void InitTB() {
-  Serial.print("Connecting to: ");
-  Serial.print(thingsboardServer);
-  Serial.print(" with token ");
-  Serial.println(accessToken);
-  if (!tb.connect(thingsboardServer, accessToken,THINGSBOARD_PORT)) {
-    Serial.println("Failed to connect to tb");
-  }
+// ============================================================
+//  WiFi neu verbinden falls getrennt
+// ============================================================
+void ensureWiFi()
+{
+    if (WiFi.status() != WL_CONNECTED)
+    {
+        Serial.println("[WIFI] Verbindung verloren – reconnect...");
+        WiFi.disconnect();
+        delay(500);
+        InitWiFi();
+    }
 }
 
+// ============================================================
+//  Telemetrie an ThingsBoard senden
+// ============================================================
+void sendToThingsBoard(const SensorPacket& p)
+{
+    // Token aus dem Paket als Access-Token nutzen
+    strlcpy(accessToken, p.token, sizeof(accessToken));
+
+    ensureWiFi();
+
+    if (!InitTB()) return;
+
+    // ── Telemetrie ────────────────────────────────────────────
+    tb.sendTelemetryData("Temperature",    round(p.temperature    * 100.0) / 100.0);
+    tb.sendTelemetryData("Pressure",       round(p.pressure       * 100.0) / 100.0);
+    tb.sendTelemetryData("Humidity",       round(p.humidity       * 100.0) / 100.0);
+    tb.sendTelemetryData("Gas_Resistance", round(p.gasResistance  * 100.0) / 100.0);
+    tb.sendTelemetryData("Battery_Voltage",round(p.batteryVoltage * 100.0) / 100.0);
+
+    // ── Attribute ─────────────────────────────────────────────
+    tb.sendAttributeData("rssi", round(Lora_gateway.getLastRSSI() * 10.0) / 10.0);
+    tb.sendAttributeData("snr",  round(Lora_gateway.getLastSNR()  * 10.0) / 10.0);
+
+    Serial.println("[TB] ✅ Daten gesendet.");
+    tb.disconnect();
+}
+
+// ============================================================
+//  Paket auswerten + ausgeben
+// ============================================================
+void handlePacket()
+{
+    String sender  = Lora_gateway.readSender();
+    String payload = Lora_gateway.readData();
+
+    Serial.println("[LORA] ── Neues Paket ─────────────────────────");
+    Serial.println("        Sender          : " + sender);
+    Serial.println("        Payload         : " + payload);
+
+    SensorPacket packed = parseSensorPacket(sender, payload);
+
+    Serial.println("        Token           : " + String(packed.token));
+    Serial.println("        Temperatur      : " + String(packed.temperature,    2) + " °C");
+    Serial.println("        Luftdruck       : " + String(packed.pressure,       2) + " hPa");
+    Serial.println("        Luftfeuchtigkeit: " + String(packed.humidity,       2) + " %");
+    Serial.println("        Gaswiderstand   : " + String(packed.gasResistance,  2) + " kOhm");
+    Serial.println("        Batterie        : " + String(packed.batteryVoltage, 2) + " V");
+    Serial.println("        RSSI            : " + String(Lora_gateway.getLastRSSI(), 1) + " dBm");
+    Serial.println("        SNR             : " + String(Lora_gateway.getLastSNR(),  1) + " dB");
+    Serial.println("[LORA] ──────────────────────────────────────────");
+
+    sendToThingsBoard(packed);
+}
+
+// ============================================================
+//  setup()
+// ============================================================
 void setup()
 {
     Serial.begin(115200);
-    delay(5000); // Warte 5 Sekunden fuer Serial Debugging
+    delay(2000);
 
-    pinMode(LED_BLUE, OUTPUT);
-    digitalWrite(LED_BLUE, LOW);
+    Serial.println("╔══════════════════════════════╗");
+    Serial.println("║   CAI_MINI LoRa Gateway      ║");
+    Serial.println("╚══════════════════════════════╝");
 
+    // ── LEDs ─────────────────────────────────────────────────
+    pinMode(LED_BLUE,   OUTPUT);
+    pinMode(LED_ORANGE, OUTPUT);
+    digitalWrite(LED_BLUE,   LOW);
+    digitalWrite(LED_ORANGE, HIGH);
 
-
-    Serial.println("CAI_MINI LoRa Gateway gestartet.");
-    InitSD();
-    get_ini_values();
+    // ── WiFi ─────────────────────────────────────────────────
     InitWiFi();
 
-    Lora_gateway.begin();
+    // ── LoRa ─────────────────────────────────────────────────
+    // KEIN pinMode(LORA_DIO1, INPUT) hier! 
+    // RadioLib / LORA::begin() übernimmt den Pin komplett.
+    if (!Lora_gateway.begin("GATEWAY01"))
+    {
+        Serial.println("[LORA] KRITISCH: Initialisierung fehlgeschlagen!");
+        while (1) { delay(1000); }
+    }
+
+    Serial.println("[SETUP] ✅ Bereit – warte auf LoRa Pakete...");
 }
 
-
-
-
+// ============================================================
+//  loop()
+// ============================================================
 void loop()
 {
+    // ── Interrupt-basiert: packetReceived() prüft s_packetFlag ──
+    // KEIN digitalRead(LORA_DIO1) mehr nötig!
     if (Lora_gateway.packetReceived())
     {
-        digitalWrite(LED_BLUE, HIGH);
-        // ── 1. Rohdaten vom Gateway holen ────────────────────
-        String sender  = Lora_gateway.readSender();
-        String payload = Lora_gateway.readData();
- 
-        // ── 2. Parsen ────────────────────────────────────────
-        SensorPacket packed = parseSensorPacket(sender, payload);
- 
-
-        Serial.println("  Sender          : " + String(packed.sender));
-        Serial.println("  Token           : " + String(packed.token));
-        Serial.println("  Temperatur      : " + String(packed.temperature,    2) + " °C");
-        Serial.println("  Luftdruck       : " + String(packed.pressure,       2) + " hPa");
-        Serial.println("  Luftfeuchtigkeit: " + String(packed.humidity,       2) + " %");
-        Serial.println("  Gaswiderstand   : " + String(packed.gasResistance,  2) + " kOhm");
-        Serial.println("  Batterie        : " + String(packed.batteryVoltage, 2) + " V");
-        Serial.println("  RSSI            : " + String(Lora_gateway.getLastRSSI(), 1) + " dBm");
-        Serial.println("  SNR             : " + String(Lora_gateway.getLastSNR(), 1) + " dB");
-
-
-        strlcpy(accessToken, packed.token, sizeof(accessToken));
-
-        
-        InitTB();
-
-        tb.sendTelemetryData("Temperature", round(packed.temperature * 100.0) / 100.0);
-        tb.sendTelemetryData("Pressure", round(packed.pressure * 100.0) / 100.0);
-        tb.sendTelemetryData("Humidity", round(packed.humidity * 100.0) / 100.0);
-        tb.sendTelemetryData("Gas_Resistance", round(packed.gasResistance * 100.0) / 100.0);
-        tb.sendTelemetryData("Battery_Voltage", round(packed.batteryVoltage * 100.0) / 100.0);
-        tb.sendAttributeData("rssi", round(Lora_gateway.getLastRSSI() * 10.0) / 10.0);
-        tb.sendAttributeData("snr", round(Lora_gateway.getLastSNR() * 10.0) / 10.0);
-
-        tb.disconnect();
-
-        digitalWrite(LED_BLUE, LOW);
-
+        digitalWrite(LED_ORANGE, LOW);
+        handlePacket();
+        digitalWrite(LED_ORANGE, HIGH);
     }
-}
 
+    // ── TB loop() für Keep-Alive (optional, wenn Subscription genutzt) ──
+    // tb.loop();
+}
