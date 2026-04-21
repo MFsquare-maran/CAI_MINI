@@ -154,6 +154,7 @@ void sendToThingsBoard(const SensorPacket& p)
 
     Serial.println("[TB] ✅ Daten gesendet.");
     tb.loop();
+    delay(1000);
     tb.disconnect();
 }
 
@@ -198,6 +199,54 @@ float readBattVoltage_heltec(uint8_t adc_pin) {
   return avg_mv * (490.0 / 100.0) / 1000.0; // in Volt
 }
 
+// ============================================================
+//  gateway send
+// ============================================================
+void gateway_send()
+{
+        Serial.println("[GATEWAY] Sending data to ThingsBoard.");
+        ensureWiFi();
+
+        digitalWrite(LED_BOARD, ON);
+
+        InitTB(TB_SERVER, TB_TOKEN_GATEWAY, TB_PORT);
+
+
+        tb.sendAttributeData("rssi", WiFi.RSSI());
+        tb.sendAttributeData("channel", WiFi.channel());
+        tb.sendAttributeData("bssid", WiFi.BSSIDstr().c_str());
+        tb.sendAttributeData("localIp", WiFi.localIP().toString().c_str());
+        tb.sendAttributeData("ssid", WiFi.SSID().c_str());
+        tb.sendAttributeData("fwversion", FW_VERSION);
+
+        #ifdef HELTEC_WSL_V3
+
+            tb.sendTelemetryData("gateway_battery_voltage", round(readBattVoltage_heltec(VBAT_PIN) * 100.0) / 100.0);
+
+        #endif
+
+        #ifdef SEED_XIAO_ESP32S3
+
+            tb.sendTelemetryData("Battery_Voltage", random(3500, 4201) / 1000.0 );
+
+        #endif
+
+        Serial.println("[TB] ✅ Daten gesendet.");
+
+        tb.loop(); // Keep-Alive für MQTT-Verbindung
+        delay(1000);
+        tb.disconnect();
+
+        digitalWrite(LED_BOARD, OFF);
+
+        Serial.println("[GATEWAY] Check for Updates...");
+
+        updater.checkAndUpdate(TB_SERVER,TB_TOKEN_GATEWAY,FW_VERSION,0);
+
+
+}
+
+
 
 // ============================================================
 //  setup()
@@ -237,7 +286,10 @@ void setup()
         while (1) { delay(1000); }
     }
 
+    gateway_send();
+
     Serial.println("[SETUP] ✅ Bereit – warte auf LoRa Pakete...");
+
 }
 
 // ============================================================
@@ -260,48 +312,11 @@ void loop()
         Serial.println("[GATEWAY] Send interval reached.");
         Serial.println("[GATEWAY] Sending data to ThingsBoard.");
 
-        ensureWiFi();
-
-        digitalWrite(LED_BOARD, ON);
-
-        InitTB(TB_SERVER, TB_TOKEN_GATEWAY, TB_PORT);
-
-
-        tb.sendAttributeData("rssi", WiFi.RSSI());
-        tb.sendAttributeData("channel", WiFi.channel());
-        tb.sendAttributeData("bssid", WiFi.BSSIDstr().c_str());
-        tb.sendAttributeData("localIp", WiFi.localIP().toString().c_str());
-        tb.sendAttributeData("ssid", WiFi.SSID().c_str());
-        tb.sendAttributeData("fwversion", FW_VERSION);
-
-        #ifdef HELTEC_WSL_V3
-
-            tb.sendTelemetryData("gateway_battery_voltage", round(readBattVoltage_heltec(VBAT_PIN) * 100.0) / 100.0);
-
-        #endif
-
-        #ifdef SEED_XIAO_ESP32S3
-
-            tb.sendTelemetryData("Battery_Voltage", random(3500, 4201) / 1000.0 );
-
-        #endif
-
-        Serial.println("[TB] ✅ Daten gesendet.");
-
-        tb.loop(); // Keep-Alive für MQTT-Verbindung
-        tb.disconnect();
-
-        digitalWrite(LED_BOARD, OFF);
-
-        Serial.println("[GATEWAY] Check for Updates...");
-
-        updater.checkAndUpdate(TB_SERVER,TB_TOKEN_GATEWAY,FW_VERSION,0);
+        gateway_send();
 
         last_gateway_send =  now;
 
-
     }
 
-    // ── TB loop() für Keep-Alive (optional, wenn Subscription genutzt) ──
-    // tb.loop();
+ 
 }

@@ -110,7 +110,7 @@ bool LORA::begin(const String& ownName)
         return false;
     }
 
-    Serial.println("[LORA] Initialisierung erfolgreich! (Interrupt-Modus)");
+    Serial.println("[LORA] Initialisierung erfolgreich!");
     return true;
 }
 
