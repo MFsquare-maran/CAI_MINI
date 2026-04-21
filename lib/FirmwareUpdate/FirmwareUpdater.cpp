@@ -21,7 +21,8 @@ void FirmwareUpdater::closeConnection() {
 // =========================
 bool FirmwareUpdater::checkAndUpdate(const char* server,
                                      const char* token,
-                                     const String& currentVersion) {
+                                     const String& currentVersion,
+                                     bool useSD) {
 
     _server = server;
     _deviceToken = token;
@@ -73,22 +74,28 @@ bool FirmwareUpdater::checkAndUpdate(const char* server,
 
     Serial.println("🆕 New firmware: " + fw.version);
 
-    cleanupOldFirmware();
-
     String downloadPath = "/api/v1/" + String(_deviceToken) +
                           "/firmware?title=" + fw.title +
                           "&version=" + fw.version;
 
-    if (!downloadFirmwareToSD(downloadPath, fw.version)) {
-        Serial.println("❌ Download failed");
+    if (useSD) {
+        cleanupOldFirmware();
+
+        if (!downloadFirmwareToSD(downloadPath, fw.version)) {
+            Serial.println("❌ SD download failed");
+            closeConnection();
+            return false;
+        }
+
+        String file = "/firmware_" + fw.version + ".bin";
         closeConnection();
-        return false;
+        return updateFromSD(file);
+
+    } else {
+        bool ok = downloadAndFlashDirect(downloadPath);
+        closeConnection();
+        return ok;
     }
-
-    String file = "/firmware_" + fw.version + ".bin";
-
-    closeConnection();
-    return updateFromSD(file);
 }
 
 // =========================
@@ -141,14 +148,14 @@ void FirmwareUpdater::cleanupOldFirmware() {
 
 // =========================
 bool FirmwareUpdater::downloadFirmwareToSD(const String& path,
-                                          const String& version) {
+                                           const String& version) {
 
-    Serial.println("📥 Download firmware...");
+    Serial.println("📥 Download firmware to SD...");
 
     _http->get(path.c_str());
 
     int code = _http->responseStatusCode();
-    int len = _http->contentLength();
+    int len  = _http->contentLength();
 
     if (code != 200 || len <= 0) {
         Serial.println("❌ Download HTTP error");
@@ -183,9 +190,56 @@ bool FirmwareUpdater::downloadFirmwareToSD(const String& path,
 }
 
 // =========================
+bool FirmwareUpdater::downloadAndFlashDirect(const String& path) {
+
+    Serial.println("📥 Streaming OTA (no SD)...");
+
+    _http->get(path.c_str());
+
+    int code = _http->responseStatusCode();
+    int len  = _http->contentLength();
+
+    if (code != 200 || len <= 0) {
+        Serial.println("❌ HTTP error beim Stream");
+        return false;
+    }
+
+    if (!Update.begin(len)) {
+        Serial.println("❌ Update.begin() failed");
+        return false;
+    }
+
+    uint8_t buf[512];
+    int written = 0;
+
+    while (_http->connected() || _http->available()) {
+        int r = _http->readBytes(buf, sizeof(buf));
+        if (r > 0) {
+            if (Update.write(buf, r) != r) {
+                Serial.println("❌ Write error");
+                Update.abort();
+                return false;
+            }
+            written += r;
+        }
+        delay(1);
+    }
+
+    if (!Update.end() || !Update.isFinished()) {
+        Serial.println("❌ OTA nicht abgeschlossen");
+        return false;
+    }
+
+    Serial.println("✅ Stream-OTA success → reboot");
+    delay(2000);
+    ESP.restart();
+    return true;
+}
+
+// =========================
 bool FirmwareUpdater::updateFromSD(const String& fileName) {
 
-    Serial.println("🔄 OTA update...");
+    Serial.println("🔄 OTA update from SD...");
 
     File file = SD.open(fileName);
     if (!file) {

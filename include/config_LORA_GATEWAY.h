@@ -15,21 +15,35 @@
 
 
 
-#define BME_680_SCL 6
-#define BME_680_SDA 5
+#ifdef HELTEC_WSL_V3
+
+#define LED_BOARD 35
 
 
-#define LED_BLUE 2
-#define LED_ORANGE 21
 
-#define BATTERY_VOLTAGE 1
+#define VBAT_PIN     1
+#define ADC_CTRL_PIN 37
 
 
-#define SD_CLK 13
-#define SD_MISO 12
-#define SD_MOSI 11
-#define SD_CS 44
-#define SD_DETECT 7
+#define LORA_DIO1    14
+#define LORA_RESET   12
+#define LORA_BUSY    13
+
+#define LORA_SCK      9
+#define LORA_MISO    11
+#define LORA_MOSI    10
+#define LORA_NSS      8
+
+
+#define ON HIGH
+#define OFF LOW
+
+
+#endif
+
+#ifdef SEED_XIAO_ESP32S3
+
+#define LED_BOARD 21
 
 
 
@@ -42,10 +56,15 @@
 #define LORA_MOSI    9
 #define LORA_NSS      41
 
-#define SHUTDOWN_PIN 8
+
+#define ON LOW
+#define OFF HIGH
+
+#endif
 
 
+#define gateway_send_interval 10 // 5 minutes
 
-#define FW_VERSION "1.0.0_GATEWAY" // Firmware-Version
+#define FW_VERSION "1.0.1_GATEWAY" // Firmware-Version
 
 

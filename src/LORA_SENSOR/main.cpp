@@ -199,6 +199,8 @@ void setup()
     Serial.println("╔══════════════════════════════╗");
     Serial.println("║   CAI_MINI LoRa Sensor       ║");
     Serial.println("╚══════════════════════════════╝");
+    Serial.print("Firmware Version: ");
+    Serial.println(FW_VERSION);
 
     // LED
     pinMode(LED_BLUE, OUTPUT);

@@ -12,11 +12,18 @@
  */
 
 #include <Arduino.h>
+#include "config_LORA_ROUTER.h"
 
 void setup()
 {
     Serial.begin(115200);
     delay(5000); // Warte 5 Sekunden für Serial Debugging
+
+    Serial.println("╔══════════════════════════════╗");
+    Serial.println("║    CAI_MINI LoRa Route       ║");
+    Serial.println("╚══════════════════════════════╝");
+    Serial.print("Firmware Version: ");
+    Serial.println(FW_VERSION);
 
     Serial.println("CAI_MINI LoRa Router gestartet.");
 }

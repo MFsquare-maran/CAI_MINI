@@ -19,7 +19,8 @@ public:
 
     bool checkAndUpdate(const char* server,
                         const char* token,
-                        const String& currentVersion);
+                        const String& currentVersion,
+                        bool useSD = true);
 
 private:
     const char* _server;
@@ -33,6 +34,7 @@ private:
 
     FirmwareInfo extractFirmwareInfo(const String& payload);
     bool downloadFirmwareToSD(const String& downloadPath, const String& version);
+    bool downloadAndFlashDirect(const String& path);
     bool updateFromSD(const String& fileName);
     void cleanupOldFirmware();
     void closeConnection();

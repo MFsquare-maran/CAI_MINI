@@ -267,6 +267,12 @@ void setup() {
     Serial.begin(SERIAL_DEBUG_BAUD);
     delay(5000);
 
+    Serial.println("╔══════════════════════════════╗");
+    Serial.println("║   CAI_MINI WLAN              ║");
+    Serial.println("╚══════════════════════════════╝");
+    Serial.print("Firmware Version: ");
+    Serial.println(FW_VERSION);
+
     InitSD(); // SD-Karte initialisieren
 
 
@@ -291,7 +297,7 @@ void setup() {
 
     // ✅ FIRMWARE-UPDATE NACH WIFI-VERBINDUNG    
     Serial.println("\n🔧 Checking for firmware updates...");    
-    updater.checkAndUpdate(thingsboardServer, accessToken, FW_VERSION); // Falls Update verfügbar: Download, Install, Reboot
+    updater.checkAndUpdate(thingsboardServer, accessToken, FW_VERSION,1); // Falls Update verfügbar: Download, Install, Reboot
     
     vTaskResume(timerTaskforshutdwonHandle); // Timer-Task fortsetzen
 

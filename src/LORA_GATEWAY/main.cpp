@@ -11,16 +11,25 @@
 #include <WiFi.h>
 #include <Arduino_MQTT_Client.h>
 #include <ThingsBoard.h>
+#include "credentials.h"
+#include "FirmwareUpdater.h"
+
+
 
 // ============================================================
 //  Netzwerk & ThingsBoard Konfiguration
 // ============================================================
-const char* WIFI_SSID       = "TP-Link_MF";
-const char* WIFI_PASSWORD   = "MFFunkturm";
-const char* TB_SERVER       = "iot.mfsquare.ch";
+const char* WIFI_SSID           = WLAN_SSID;
+const char* WIFI_PASSWORD       = WLAN_PW;
+const char* TB_SERVER           = "iot.mfsquare.ch";
+const char* TB_TOKEN_GATEWAY    = GATEWAY_TOKEN;
 const uint16_t TB_PORT      = 1884;
 
 char accessToken[64] = {0};
+
+
+
+unsigned long last_gateway_send = 0;
 
 // ============================================================
 //  MQTT / ThingsBoard Objekte
@@ -50,6 +59,12 @@ LORA Lora_gateway(
     2000    // ackTimeout  [ms]
 );
 
+//============================================================
+// Firmware Updater
+//============================================================
+
+FirmwareUpdater updater; // Firmware-Update-Objekt
+
 // ============================================================
 //  WiFi initialisieren
 // ============================================================
@@ -66,10 +81,10 @@ void InitWiFi()
     {
         delay(500);
         Serial.print(".");
-        digitalWrite(LED_ORANGE, !digitalRead(LED_ORANGE)); // blinken
+        digitalWrite(LED_BOARD, !digitalRead(LED_BOARD)); // blinken
     }
 
-    digitalWrite(LED_ORANGE, LOW);
+    digitalWrite(LED_BOARD, OFF);
 
     if (WiFi.status() == WL_CONNECTED)
     {
@@ -85,12 +100,12 @@ void InitWiFi()
 // ============================================================
 //  ThingsBoard verbinden
 // ============================================================
-bool InitTB()
+bool InitTB(const char* tb_server , const char* access_token, uint16_t tb_port)
 {
-    Serial.println("[TB] Verbinde mit: " + String(TB_SERVER) +
-                   " | Token: "         + String(accessToken));
+    Serial.println("[TB] Verbinde mit: " + String(tb_server) +
+                   " | Token: "         + String(access_token));
 
-    if (!tb.connect(TB_SERVER, accessToken, TB_PORT))
+    if (!tb.connect(tb_server, access_token, tb_port))
     {
         Serial.println("[TB] ❌ Verbindung fehlgeschlagen!");
         return false;
@@ -124,7 +139,7 @@ void sendToThingsBoard(const SensorPacket& p)
 
     ensureWiFi();
 
-    if (!InitTB()) return;
+    if (!InitTB(TB_SERVER, accessToken, TB_PORT)) return;
 
     // ── Telemetrie ────────────────────────────────────────────
     tb.sendTelemetryData("Temperature",    round(p.temperature    * 100.0) / 100.0);
@@ -169,23 +184,46 @@ void handlePacket()
 }
 
 // ============================================================
+//  Akku-Spannung lesen (mit Kalibrierungstabelle für HELTEC-Boards)
+// ============================================================
+
+float readBattVoltage_heltec(uint8_t adc_pin) {
+  uint32_t raw = 0;
+  for (int i = 0; i < 20; i++) {
+    raw += analogReadMilliVolts(adc_pin);
+  }
+  float avg_mv = raw / 20.0;
+  // Spannungsteiler zurückrechnen: 100k / (100k + 390k)
+  return avg_mv * (490.0 / 100.0) / 1000.0; // in Volt
+}
+
+
+// ============================================================
 //  setup()
 // ============================================================
 void setup()
 {
     Serial.begin(115200);
-    delay(2000);
+    delay(5000);
 
     Serial.println("╔══════════════════════════════╗");
-    Serial.println("║   CAI_MINI LoRa Gateway      ║");
+    Serial.println("║    LoRa Gateway              ║");
     Serial.println("╚══════════════════════════════╝");
+    Serial.print("Firmware Version: ");
+    Serial.println(FW_VERSION);
 
     // ── LEDs ─────────────────────────────────────────────────
-    pinMode(LED_BLUE,   OUTPUT);
-    pinMode(LED_ORANGE, OUTPUT);
-    digitalWrite(LED_BLUE,   LOW);
-    digitalWrite(LED_ORANGE, HIGH);
+    
+    pinMode(LED_BOARD, OUTPUT);
+    digitalWrite(LED_BOARD, ON);
 
+    #ifdef HELTEC_WSL_V3
+
+        pinMode(VBAT_PIN, INPUT); //HELTEC-Boards haben VBAT intern mit ADC verbunden, daher INPUT
+        pinMode(ADC_CTRL_PIN, OUTPUT); //HELTEC-Boards haben ADC_CTRL intern mit VBAT verbunden, daher OUTPUT und HIGH für Messung
+        digitalWrite(ADC_CTRL_PIN, LOW); // LOW für normale Messung, HIGH für Kalibrierung (je nach Board nötig)
+
+    #endif
     // ── WiFi ─────────────────────────────────────────────────
     InitWiFi();
 
@@ -206,13 +244,65 @@ void setup()
 // ============================================================
 void loop()
 {
+    unsigned long now = millis();
     // ── Interrupt-basiert: packetReceived() prüft s_packetFlag ──
     // KEIN digitalRead(LORA_DIO1) mehr nötig!
     if (Lora_gateway.packetReceived())
     {
-        digitalWrite(LED_ORANGE, LOW);
+        digitalWrite(LED_BOARD, ON);
         handlePacket();
-        digitalWrite(LED_ORANGE, HIGH);
+        digitalWrite(LED_BOARD, OFF);
+    }
+
+    if(now - last_gateway_send > gateway_send_interval * 60UL * 1000UL)
+    {
+        Serial.println("[GATEWAY] Send interval reached.");
+        Serial.println("[GATEWAY] Sending data to ThingsBoard.");
+
+        digitalWrite(LED_BOARD, ON);
+
+        InitTB(TB_SERVER, TB_TOKEN_GATEWAY, TB_PORT);
+
+
+        tb.sendAttributeData("rssi", WiFi.RSSI());
+        tb.sendAttributeData("channel", WiFi.channel());
+        tb.sendAttributeData("bssid", WiFi.BSSIDstr().c_str());
+        tb.sendAttributeData("localIp", WiFi.localIP().toString().c_str());
+        tb.sendAttributeData("ssid", WiFi.SSID().c_str());
+        tb.sendAttributeData("fwversion", FW_VERSION);
+
+        #ifdef HELTEC_WSL_V3
+
+            tb.sendTelemetryData("gateway_battery_voltage", round(readBattVoltage_heltec(VBAT_PIN) * 100.0) / 100.0);
+
+        #endif
+
+        #ifdef SEED_XIAO_ESP32S3
+
+            tb.sendTelemetryData("Battery_Voltage", random(3500, 4201) / 1000.0 );
+
+        #endif
+
+
+
+   
+
+        
+
+        Serial.println("[TB] ✅ Daten gesendet.");
+
+        tb.loop(); // Keep-Alive für MQTT-Verbindung
+        tb.disconnect();
+
+        digitalWrite(LED_BOARD, OFF);
+
+        Serial.println("[GATEWAY] Check for Updates...");
+
+        updater.checkAndUpdate(TB_SERVER,TB_TOKEN_GATEWAY,FW_VERSION,0);
+
+        last_gateway_send =  now;
+
+
     }
 
     // ── TB loop() für Keep-Alive (optional, wenn Subscription genutzt) ──

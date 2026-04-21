@@ -222,7 +222,6 @@ void get_ini_values() {
     ini.close();
 }
 
-
 // Schreibt Sensordaten in die CSV-Datei auf der SD-Karte
 void write_logdata(float temperature, float pressure, float humidity, float gas_resistance, float battery_voltage, float wind_vane, float wind_speed_avg,float wind_speed_gust, float rain_gauge)
 { 
@@ -321,6 +320,12 @@ void setup() {
     Serial.begin(SERIAL_DEBUG_BAUD);
     delay(5000);
 
+    Serial.println("╔══════════════════════════════╗");
+    Serial.println("║   CAI_MINI WIND              ║");
+    Serial.println("╚══════════════════════════════╝");
+    Serial.print("Firmware Version: ");
+    Serial.println(FW_VERSION);
+
     InitSD(); // SD-Karte initialisieren
 
     // LED-Pins initialisieren
@@ -411,7 +416,7 @@ void loop() {
 
                 Serial.println("\n🔧 Checking for firmware updates...");    
                  
-                updater.checkAndUpdate(thingsboardServer, accessToken, FW_VERSION);
+                updater.checkAndUpdate(thingsboardServer, accessToken, FW_VERSION,1);
                
                 
                 LocalTime(); // Zeit synchronisieren
