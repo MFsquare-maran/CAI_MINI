@@ -153,6 +153,7 @@ void sendToThingsBoard(const SensorPacket& p)
     tb.sendAttributeData("snr",  round(Lora_gateway.getLastSNR()  * 10.0) / 10.0);
 
     Serial.println("[TB] ✅ Daten gesendet.");
+    tb.loop();
     tb.disconnect();
 }
 
@@ -259,6 +260,8 @@ void loop()
         Serial.println("[GATEWAY] Send interval reached.");
         Serial.println("[GATEWAY] Sending data to ThingsBoard.");
 
+        ensureWiFi();
+
         digitalWrite(LED_BOARD, ON);
 
         InitTB(TB_SERVER, TB_TOKEN_GATEWAY, TB_PORT);
@@ -282,12 +285,6 @@ void loop()
             tb.sendTelemetryData("Battery_Voltage", random(3500, 4201) / 1000.0 );
 
         #endif
-
-
-
-   
-
-        
 
         Serial.println("[TB] ✅ Daten gesendet.");
 
