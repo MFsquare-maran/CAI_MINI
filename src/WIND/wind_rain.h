@@ -25,7 +25,9 @@ public:
     // ── Auswertung ───────────────────────────────────
     float get_wind_average();
     float get_wind_gust();
+    uint32_t get_wind_count();
     float get_rain();
+    uint32_t get_rain_count() ;
 
     float get_wind_current();
     float get_wind_direction_deg();
@@ -70,7 +72,6 @@ private:
     // ── wind calc ────────────────────────────────────
     float _wind_current;
     float _wind_sum;
-    uint32_t _wind_sample_count;
 
     // ── internals ────────────────────────────────────
     float _calc_wind_speed();

@@ -43,10 +43,9 @@ wind_rain::wind_rain()
   _rain_offset(0),
   _device_direction(0),
   _adc_table(nullptr),
-  _n_points(0),
+  _n_points(16),
   _wind_current(0),
-  _wind_sum(0),
-  _wind_sample_count(0)
+  _wind_sum(0)
 {}
 
 // ── begin ───────────────────────────────────────────────
@@ -66,7 +65,7 @@ void wind_rain::begin(float wind_direction_offset,
 
     pinMode(WIND_VANE, INPUT);
     pinMode(WIND_SPEED, INPUT_PULLDOWN);
-    pinMode(RAIN_GAUGE, INPUT);
+    pinMode(RAIN_GAUGE, INPUT_PULLDOWN);
 
     attachInterrupt(digitalPinToInterrupt(WIND_SPEED), isr_wind_speed, RISING);
     attachInterrupt(digitalPinToInterrupt(RAIN_GAUGE), isr_rain_gauge, RISING);
@@ -118,7 +117,10 @@ float wind_rain::_calc_gust() {
 // ── wind direction ──────────────────────────────────────
 float wind_rain::_calc_direction(int adc) {
 
+    Serial.println("calc direction");
+    Serial.println(_n_points);
     for (uint8_t i = 0; i < _n_points; i++) {
+        Serial.println(_adc_table[i]);
         if (abs((int)_adc_table[i] - adc) < 20) {
             float deg = _wind_deg_table[i] + _wind_direction_offset;
             return deg;
@@ -136,6 +138,12 @@ float wind_rain::get_wind_gust() {
     return _calc_gust();
 }
 
+uint32_t wind_rain::get_wind_count()
+{
+    return _wind_pulse_count;
+}
+
+
 float wind_rain::get_rain() {
     noInterrupts();
     uint32_t c = _rain_pulse_count;
@@ -146,6 +154,11 @@ float wind_rain::get_rain() {
 
 float wind_rain::get_wind_current() {
     return _calc_wind_speed();
+}
+
+uint32_t wind_rain::get_rain_count()
+{
+    return _rain_pulse_count;
 }
 
 float wind_rain::get_wind_direction_deg() {
