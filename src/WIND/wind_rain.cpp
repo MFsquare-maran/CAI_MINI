@@ -117,10 +117,7 @@ float wind_rain::_calc_gust() {
 // ── wind direction ──────────────────────────────────────
 float wind_rain::_calc_direction(int adc) {
 
-    Serial.println("calc direction");
-    Serial.println(_n_points);
     for (uint8_t i = 0; i < _n_points; i++) {
-        Serial.println(_adc_table[i]);
         if (abs((int)_adc_table[i] - adc) < 20) {
             float deg = _wind_deg_table[i] + _wind_direction_offset;
             return deg;

@@ -28,6 +28,9 @@
 #include <IniFile.h>
 #include "wind_rain.h"
 #include "soc/rtc.h"
+#include "wifi_functions.h"
+#include "time_functions.h"
+#include "sdcard.h"
 
 
 // ============================================================
@@ -36,9 +39,7 @@
 constexpr uint32_t MAX_MESSAGE_SIZE    = 1024U;
 constexpr uint32_t SERIAL_DEBUG_BAUD   = 115200U;
 
-const char *ntpServer        = "ch.pool.ntp.org";
-const long  gmtOffset_sec    = 3600;   // Zeitzone UTC+1
-const int   daylightOffset_sec = 3600; // Sommerzeit
+
 
 
 // ============================================================
@@ -54,7 +55,7 @@ uint16_t THINGSBOARD_PORT;
 // ============================================================
 //  Timing
 // ============================================================
-unsigned long sending_period = 30000// Standard: 30 Sek. in Millisekunden
+unsigned long sending_period = 30000;// Standard: 30 Sek. in Millisekunden
 unsigned long last_10min     = 0;
 unsigned long now            = 0;
 unsigned long last_update    = 0;
@@ -97,6 +98,13 @@ uint16_t wind_adc_table[16];
 // Testmodus: Wind-ADC-Rohwert per Seriell ausgeben (1 = aktiv)
 uint8_t wind_direction_test = 0;
 
+// ============================================================
+//  Time
+// ============================================================
+
+struct tm timeinfo;
+char datetime[30]; // Formatierter Zeitstring (YYYY-MM-DD HH:MM:SS)
+
 
 // ============================================================
 //  Objekte
@@ -113,93 +121,8 @@ Arduino_MQTT_Client mqttClient(wifiClient);
 ThingsBoardSized<32, 10> tb(mqttClient, MAX_MESSAGE_SIZE);
 
 
-// ============================================================
-//  Hilfsvariablen
-// ============================================================
-struct tm timeinfo;
-char datetime[30]; // Formatierter Zeitstring (YYYY-MM-DD HH:MM:SS)
-int  cnt = 0;
 
 
-// ============================================================
-//  WiFi
-// ============================================================
-
-bool InitWiFi() {
-    Serial.println();
-    Serial.print("Connecting to "); Serial.println(ssid);
-
-    WiFi.begin(ssid, password, 0, nullptr, true);
-
-    unsigned long startAttemptTime = millis();
-    const unsigned long timeout = 15000;
-
-    while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < timeout) {
-        delay(500);
-        Serial.print(".");
-    }
-    Serial.println("");
-    if (WiFi.status() != WL_CONNECTED) {
-
-        Serial.println("❌ WiFi konnte nicht verbunden werden.");
-        return false;
-    }
-
-    digitalWrite(LED_ORANGE, HIGH);
-    Serial.println("\n✅ WiFi connected");
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
-    return true;
-}
-
-void disconnectWiFi() {
-    Serial.println("Disconnecting WiFi...");
-    wifiClient.stop();
-    WiFi.disconnect(true);
-    delay(50);
-    WiFi.mode(WIFI_OFF);
-    Serial.println("✅ WiFi disconnected");
-}
-
-
-// ============================================================
-//  Zeit (NTP)
-// ============================================================
-
-bool LocalTime() {
-    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-
-    unsigned long start = millis();
-    const unsigned long timeout = 10000;  // 10 Sekunden
-
-    while (!getLocalTime(&timeinfo)) {
-        if (millis() - start > timeout) {
-            Serial.println("⚠️ NTP Timeout – keine Zeit empfangen");
-            datetime[0] = '\0';   // leerer String als Signal "keine Zeit"
-            return false;
-        }
-        Serial.println("Warte auf NTP...");
-        delay(500);
-    }
-
-    strftime(datetime, sizeof(datetime), "%Y-%m-%d %H:%M:%S", &timeinfo);
-    Serial.print("Aktuelle Zeit: ");
-    Serial.println(datetime);
-    return true;
-}
-
-// ============================================================
-//  SD-Karte
-// ============================================================
-
-void InitSD() {
-    SPI.begin(SD_CLK, SD_MISO, SD_MOSI, SD_CS);
-    if (!SD.begin(SD_CS)) {
-        Serial.println("❌ Fehler: SD-Karte konnte nicht initialisiert werden!");
-        while (1);
-    }
-    Serial.println("✅ SD-Karte erfolgreich initialisiert!");
-}
 
 // Schreibt eine Zeile Messdaten in /data.csv; erstellt Datei mit Header falls nötig
 void write_logdata(float temperature, float pressure, float humidity,
@@ -372,7 +295,7 @@ void setup() {
     Serial.print("Firmware Version: ");
     Serial.println(FW_VERSION);
 
-    InitSD();
+    InitSD(SD_CLK, SD_MISO,SD_MOSI,SD_CS);
 
     // LEDs und Steuer-Pins konfigurieren
     pinMode(LED_BLUE,     OUTPUT);
@@ -464,8 +387,9 @@ void loop() {
 
         digitalWrite(LED_BLUE, HIGH);
 
+
         // --- WiFi verbinden ---
-        if (InitWiFi() == false) {
+        if (InitWiFi(ssid,password) == false) {
             last_10min = now;
             Serial.println("Probiere später nochmals");
             digitalWrite(LED_BLUE, LOW);
@@ -479,7 +403,7 @@ void loop() {
         }
 
         // --- Zeit synchronisieren ---
-        LocalTime();
+        LocalTime(datetime,&timeinfo);
 
         // --- Daten auf SD-Karte loggen ---
         write_logdata(temperature, pressure, humidity, gas_resistance,
@@ -515,7 +439,7 @@ void loop() {
         tb.loop();       // MQTT-Puffer leeren (Daten werden erst hier wirklich gesendet)
         tb.disconnect(); // MQTT-Verbindung sauber schliessen
 
-        disconnectWiFi();
+        disconnectWiFi(&wifiClient);
         digitalWrite(LED_BLUE, LOW);
 
         // CPU wieder auf Sparmodus

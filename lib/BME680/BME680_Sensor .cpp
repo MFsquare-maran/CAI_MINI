@@ -68,7 +68,7 @@ void BME680_Sensor::enable() {
 }
 
 void BME680_Sensor::disable() {
-    Serial.println("🔴 BME680 disabled (heater off + low power)");
+    Serial.println("🔴 BME680 disabled");
 
     // Heater AUS
     _bme.setGasHeater(0, 0);
