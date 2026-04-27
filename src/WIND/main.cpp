@@ -286,6 +286,7 @@ void loop() {
         tb.sendTelemetryData("Rain_Gauge",      round(data.rain_gauge             * 100.0) / 100.0);
 
         tb.loop();       // MQTT-Puffer leeren (Daten werden erst hier wirklich gesendet)
+        delay(1000);
         tb.disconnect(); // MQTT-Verbindung sauber schliessen
 
         disconnectWiFi(&wifiClient);
