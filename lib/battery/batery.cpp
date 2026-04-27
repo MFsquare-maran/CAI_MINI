@@ -51,7 +51,7 @@ uint8_t Battery::getPercentage()
 {
     float v = getVoltage();
 
-    float p = (v - 3.5f) / (4.2f - 3.5f) * 100.0f;
+    float p = (v - 3.0f) / (4.2f - 3.0f) * 100.0f;
 
     // Begrenzen auf 0–100%
     if (p < 0.0f)   p = 0.0f;

@@ -156,6 +156,7 @@ void setup() {
     battery.begin(BATTERY_VOLTAGE);
 
     sdcard.readIni("/INIT.ini");
+   
     bme.set_offset(sdcard.cfg.temperature_offset, sdcard.cfg.Pressure_offset, sdcard.cfg.Huminity_offset, sdcard.cfg.Gas_offset);
     windRain.begin(sdcard.cfg.wind_vane_offset, sdcard.cfg.wind_speed_offset, sdcard.cfg.rain_offset, sdcard.cfg.device_direction, sdcard.cfg.wind_adc_table);
 
@@ -164,6 +165,9 @@ void setup() {
     windRain.enable_interrupts();
 
     now = millis();
+
+    sending_period = sdcard.cfg.sending_period;
+
     last_10min = now + sending_period;
 }
 

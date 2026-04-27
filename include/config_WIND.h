@@ -25,4 +25,4 @@
 
 
 
-#define FW_VERSION "1.1.0_WIND" // Firmware-Version
+#define FW_VERSION "1.1.3_WIND" // Firmware-Version
