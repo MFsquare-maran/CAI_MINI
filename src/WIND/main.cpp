@@ -282,7 +282,7 @@ void loop() {
         tb.sendTelemetryData("Battery_Voltage", round(data.battery_voltage         * 100.0) / 100.0);
         tb.sendTelemetryData("Wind_Vane",       round(data.wind_vane             * 100.0) / 100.0);
         tb.sendTelemetryData("Wind_Speed_Avg",  round(data.wind_speed_avg          * 100.0) / 100.0);
-        tb.sendTelemetryData("Wind_Speed_Gust", round(data.wind_speed_avg         * 100.0) / 100.0);
+        tb.sendTelemetryData("Wind_Speed_Gust", round(data.wind_speed_gust         * 100.0) / 100.0);
         tb.sendTelemetryData("Rain_Gauge",      round(data.rain_gauge             * 100.0) / 100.0);
 
         tb.loop();       // MQTT-Puffer leeren (Daten werden erst hier wirklich gesendet)

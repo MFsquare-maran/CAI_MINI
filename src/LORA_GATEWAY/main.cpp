@@ -220,8 +220,13 @@ void gateway_send()
         tb.sendAttributeData("fwversion", FW_VERSION);
 
         #ifdef HELTEC_WSL_V3
-
-            tb.sendTelemetryData("gateway_battery_voltage", round(readBattVoltage_heltec(VBAT_PIN) * 100.0) / 100.0);
+            
+            float voltage = readBattVoltage_heltec(VBAT_PIN);
+        
+            tb.sendTelemetryData("Battery_Voltage", ((voltage* 100.0) / 100.0));
+            Serial.print("Batery Voltage = ");
+            Serial.print((voltage * 100.0) / 100.0);
+            Serial.println(" V");
 
         #endif
 
