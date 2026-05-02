@@ -192,7 +192,7 @@ void handlePacket()
 float readBattVoltage_heltec(uint8_t adc_pin) {
   uint32_t raw = 0;
   for (int i = 0; i < 20; i++) {
-    raw += analogReadMilliVolts(adc_pin);
+    raw += analogReadMilliVolts(adc_pin)*(4.095f/3.95f);
   }
   float avg_mv = raw / 20.0;
   // Spannungsteiler zurückrechnen: 100k / (100k + 390k)
