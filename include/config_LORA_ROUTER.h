@@ -38,13 +38,12 @@
 #define LORA_SCK     7
 #define LORA_MISO    8
 #define LORA_MOSI    9
-#define LORA_NSS      41
+#define LORA_NSS     41
 
 
 #define SHUTDOWN_PIN 8
 
-#define SEND_INTERVAL_SEC (10*60)
 
-#define FW_VERSION "1.0.0_Router" // Firmware-Version
+#define FW_VERSION "1.0.2_ROUTER" // Firmware-Version
 
 

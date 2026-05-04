@@ -13,6 +13,11 @@
 #include "battery.h"
 #include "sdcard.h"
 #include "esp_wifi.h"
+#include "wifi_functions.h"
+#include "FirmwareUpdater.h"
+#include <WiFi.h>
+#include <Arduino_MQTT_Client.h>
+#include <ThingsBoard.h>
 
 // ============================================================
 //  Objekte
@@ -23,6 +28,20 @@ SPIClass spi_lora(FSPI);
 BME680_Sensor bme;
 Battery       battery;
 SDCard        sdcard;
+FirmwareUpdater updater;
+
+
+// ============================================================
+//  Konstanten
+// ============================================================
+constexpr uint32_t MAX_MESSAGE_SIZE    = 1024U;
+constexpr uint32_t SERIAL_DEBUG_BAUD   = 115200U;
+
+
+WiFiClient          wifiClient;
+Arduino_MQTT_Client mqttClient(wifiClient);
+ThingsBoardSized<32, 10> tb(mqttClient, MAX_MESSAGE_SIZE);
+
 
 LORA Lora_sensor(
     LORA_NSS,
@@ -42,6 +61,30 @@ LORA Lora_sensor(
 //  Zeitstempel letztes Senden
 // ============================================================
 unsigned long last_send = 0;
+unsigned long sending_period = 1;// Standard: 1Min. 
+
+
+
+
+
+// ============================================================
+//  ThingsBoard
+// ============================================================
+
+void InitTB() {
+    Serial.print("Connecting to: ");
+    Serial.print(sdcard.cfg.thingsboardServer);
+    Serial.print(" with token ");
+    Serial.println(sdcard.cfg.accessToken);
+
+    if (!tb.connect(sdcard.cfg.thingsboardServer, sdcard.cfg.accessToken, sdcard.cfg.THINGSBOARD_PORT)) {
+        Serial.println("Failed to connect to ThingsBoard");
+    } else {
+        Serial.println("Connected to ThingsBoard");
+    }
+}
+
+
 
 // ============================================================
 //  CPU Frequenz helpers
@@ -151,7 +194,7 @@ void setup()
 {
     setCpuFrequencyMhz(240);
     Serial.begin(115200);
-    delay(500);
+    delay(3000);
 
     Serial.println("╔══════════════════════════════╗");
     Serial.println("║   CAI_MINI LoRa Sensor       ║");
@@ -177,8 +220,12 @@ void setup()
                    sdcard.cfg.Huminity_offset,
                    sdcard.cfg.Gas_offset);
 
+    sending_period = sdcard.cfg.sending_period;
+
     // ── Erstes Senden sofort beim Start ───────────────────────
-    measureAndSend();
+    last_send = millis() + (sending_period);
+
+    setCpuLow();
 }
 
 // ============================================================
@@ -186,9 +233,34 @@ void setup()
 // ============================================================
 void loop()
 {
-    if (millis() - last_send >= (unsigned long)SEND_INTERVAL_SEC * 1000UL)
-    {
-        measureAndSend();
+    if (millis() - last_send >= sending_period )
+    {   
+        setCpuHigh();
+
+        if (InitWiFi(sdcard.cfg.ssid,sdcard.cfg.password)) 
+        {
+            Serial.println("\n🔧 Checking for firmware updates...");
+            updater.checkAndUpdate(sdcard.cfg.thingsboardServer, sdcard.cfg.accessToken, FW_VERSION, 1);
+            InitTB();
+            tb.sendAttributeData("channel",   WiFi.channel());
+            tb.sendAttributeData("bssid",     WiFi.BSSIDstr().c_str());
+            tb.sendAttributeData("localIp",   WiFi.localIP().toString().c_str());
+            tb.sendAttributeData("ssid",      WiFi.SSID().c_str());
+            tb.sendAttributeData("fwversion", FW_VERSION);
+
+            tb.loop();       // MQTT-Puffer leeren (Daten werden erst hier wirklich gesendet)
+            delay(1000);
+            tb.disconnect(); // MQTT-Verbindung sauber schliessen
+            delay(1000);
+            disconnectWiFi(&wifiClient);
+            esp_wifi_stop();
+            measureAndSend();
+
+        }else{
+            measureAndSend(); // senden über LORA
+        }
+
+        
     }
 
     // ── Kurz yielden ──────────────────────────────────────────

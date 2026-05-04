@@ -20,7 +20,20 @@
 #include <ThingsBoard.h>
 #include "credentials.h"
 #include "FirmwareUpdater.h"
+#include <TelnetStream.h>   
 
+//TODO
+
+/*
+// In setup(), nach InitWiFi():
+TelnetStream.begin();       // 2. Telnet starten
+
+// Überall wo du Serial.println(...) schreibst:
+#define LOG(x) { Serial.println(x); TelnetStream.println(x); }
+
+LOG("SENSORDATEN");
+
+*/
 
 
 // ============================================================
@@ -273,7 +286,7 @@ void gateway_send()
 void setup()
 {
     Serial.begin(115200);
-    delay(5000);
+    delay(3000);
 
     Serial.println("╔══════════════════════════════╗");
     Serial.println("║    LoRa Gateway              ║");
