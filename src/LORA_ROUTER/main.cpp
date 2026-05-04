@@ -59,6 +59,43 @@ void setCpuHigh()
     Serial.println("[PM] CPU → 240 MHz (Aktiv)");
 }
 
+
+// ============================================================
+//  Fremdes Paket weiterleiten
+// ============================================================
+void forwardPacket()
+{
+    setCpuHigh();
+
+    String sender = Lora_router.readSender();
+    String data   = Lora_router.readData();
+    float  rssi   = Lora_router.getLastRSSI();  // ← RSSI des empfangenen Pakets
+
+    Serial.println("[ROUTER] Paket empfangen von: " + sender);
+    Serial.println("[ROUTER] RSSI vom Sensor:      " + String(rssi, 1) + " dBm");
+
+    // ── RSSI anhängen (leeres Feld ersetzen oder hinzufügen) ──
+    if (data.endsWith("RSSI:")) {
+        // Sensor hat leeres RSSI-Feld → befüllen
+        data += String(round(rssi * 10.0) / 10.0);
+    } else if (data.indexOf("RSSI:") == -1) {
+        // kein RSSI-Feld vorhanden → anhängen
+        data += ";RSSI:" + String(round(rssi * 10.0) / 10.0);
+    }
+    // sonst: RSSI bereits befüllt → nicht überschreiben
+
+    Serial.println("[ROUTER] Weiterleiten: " + data);
+
+    digitalWrite(LED_BLUE, HIGH);
+    bool ok = Lora_router.transmit(sdcard.cfg.SenderID, data);
+    digitalWrite(LED_BLUE, LOW);
+
+    if (ok) Serial.println("[ROUTER] ✅ Paket weitergeleitet.");
+    else    Serial.println("[ROUTER] ❌ Weiterleiten fehlgeschlagen.");
+
+    setCpuLow();
+}
+
 // ============================================================
 //  Eigenes Paket senden
 // ============================================================
@@ -85,7 +122,8 @@ void sendOwnPacket()
         ";Pressure:"        + String(round(pressure        * 100.0) / 100.0) +
         ";Humidity:"        + String(round(humidity        * 100.0) / 100.0) +
         ";Gas_Resistance:"  + String(round(gas_resistance  * 100.0) / 100.0) +
-        ";Battery_Voltage:" + String(round(battery_voltage * 100.0) / 100.0);
+        ";Battery_Voltage:" + String(round(battery_voltage * 100.0) / 100.0) +
+        ";RSSI:";            // ← leer, Gateway füllt es
 
     digitalWrite(LED_ORANGE, LOW);
     bool ok = Lora_router.transmit(sdcard.cfg.SenderID, payload);
@@ -94,32 +132,11 @@ void sendOwnPacket()
     if (ok) Serial.println("[ROUTER] ✅ Eigenes Paket gesendet.");
     else    Serial.println("[ROUTER] ❌ Senden fehlgeschlagen.");
 
-    last_own_send = millis();
     setCpuLow();
 }
 
-// ============================================================
-//  Fremdes Paket weiterleiten
-// ============================================================
-void forwardPacket()
-{
-    setCpuHigh();
 
-    String sender = Lora_router.readSender();
-    String data   = Lora_router.readData();    // ← readData() statt readRawPacket()
 
-    Serial.println("[ROUTER] Paket empfangen von: " + sender);
-    Serial.println("[ROUTER] Weiterleiten: "        + data);
-
-    digitalWrite(LED_BLUE, HIGH);
-    bool ok = Lora_router.transmit(sdcard.cfg.SenderID, data);
-    digitalWrite(LED_BLUE, LOW);
-
-    if (ok) Serial.println("[ROUTER] ✅ Paket weitergeleitet.");
-    else    Serial.println("[ROUTER] ❌ Weiterleiten fehlgeschlagen.");
-
-    setCpuLow();
-}
 
 // ============================================================
 //  setup()
@@ -185,6 +202,7 @@ void loop()
     // ── Zeit für eigenes Paket? ───────────────────────────────
     if (millis() - last_own_send >= (unsigned long)SEND_INTERVAL_SEC * 1000UL)
     {
+        
         sendOwnPacket(); // setzt CPU hoch/runter intern
     }
 

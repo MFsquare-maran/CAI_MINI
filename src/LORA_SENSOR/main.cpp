@@ -95,7 +95,8 @@ String buildPayload(float temperature, float pressure, float humidity,
            ";Pressure:"        + String(round(pressure       * 100.0) / 100.0) +
            ";Humidity:"        + String(round(humidity       * 100.0) / 100.0) +
            ";Gas_Resistance:"  + String(round(gas_resistance * 100.0) / 100.0) +
-           ";Battery_Voltage:" + String(round(battery_voltage* 100.0) / 100.0);
+           ";Battery_Voltage:" + String(round(battery_voltage* 100.0) / 100.0) +
+           ";RSSI:";            // ← leer, Router füllt es
 }
 
 // ============================================================

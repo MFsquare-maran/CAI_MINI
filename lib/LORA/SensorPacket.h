@@ -1,8 +1,4 @@
-// ============================================================
-//  SensorPacket.h
-// ============================================================
 #pragma once
-
 #include <Arduino.h>
 
 struct SensorPacket
@@ -14,6 +10,7 @@ struct SensorPacket
     float   humidity;
     float   gasResistance;
     float   batteryVoltage;
+    float   rssi;      
     bool    valid;
 
     SensorPacket();

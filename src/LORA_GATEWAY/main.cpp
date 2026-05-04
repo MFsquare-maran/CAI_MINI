@@ -141,23 +141,30 @@ void ensureWiFi()
 // ============================================================
 void sendToThingsBoard(const SensorPacket& p)
 {
-    // Token aus dem Paket als Access-Token nutzen
     strlcpy(accessToken, p.token, sizeof(accessToken));
-
     ensureWiFi();
-
     if (!InitTB(TB_SERVER, accessToken, TB_PORT)) return;
 
-    // ── Telemetrie ────────────────────────────────────────────
     tb.sendTelemetryData("Temperature",    round(p.temperature    * 100.0) / 100.0);
     tb.sendTelemetryData("Pressure",       round(p.pressure       * 100.0) / 100.0);
     tb.sendTelemetryData("Humidity",       round(p.humidity       * 100.0) / 100.0);
     tb.sendTelemetryData("Gas_Resistance", round(p.gasResistance  * 100.0) / 100.0);
     tb.sendTelemetryData("Battery_Voltage",round(p.batteryVoltage * 100.0) / 100.0);
 
-    // ── Attribute ─────────────────────────────────────────────
-    tb.sendAttributeData("rssi", round(Lora_gateway.getLastRSSI() * 10.0) / 10.0);
-    tb.sendAttributeData("snr",  round(Lora_gateway.getLastSNR()  * 10.0) / 10.0);
+    // ── RSSI: Gateway-RSSI anhängen falls noch leer ───────────
+    float rssi_to_send;
+    if (p.rssi == -1.0f) {
+        // kein RSSI im Paket → Gateway hängt seinen eigenen an
+        rssi_to_send = Lora_gateway.getLastRSSI();
+        Serial.println("[TB] RSSI vom Gateway: " + String(rssi_to_send, 1) + " dBm");
+    } else {
+        // RSSI bereits vom Router gesetzt → weiterverwenden
+        rssi_to_send = p.rssi;
+        Serial.println("[TB] RSSI vom Router:  " + String(rssi_to_send, 1) + " dBm");
+    }
+    tb.sendAttributeData("rssi", round(rssi_to_send * 10.0) / 10.0);
+
+    tb.sendAttributeData("snr", round(Lora_gateway.getLastSNR() * 10.0) / 10.0);
 
     Serial.println("[TB] ✅ Daten gesendet.");
     tb.loop();
