@@ -114,6 +114,7 @@ bool LORA::begin(const String& ownName)
     return true;
 }
 
+
 // ============================================================
 //  transmit — sendet mit ACK-Handshake
 // ============================================================
@@ -193,57 +194,13 @@ void LORA::forcePacketFlag()
     Serial.println("[LORA] forcePacketFlag() gesetzt (Wake-Up Pfad)");
 }
 
-// ============================================================
-//  deepSleepUntilPacket — ESP32 schlaeft bis DIO1 HIGH
-// ============================================================
-void LORA::deepSleepUntilPacketorTimer(uint16_t sleepTimeSeconds)
+void LORA::sleepRadio()
 {
-    Serial.println("[LORA] Bereite Deep Sleep vor...");
-    Serial.println("[LORA] SX1262 bleibt im RX-Modus (DIO1 = Wake-Up)");
-    Serial.println("[LORA] Wake-Up Pin: GPIO" + String(m_dio1Pin));
-    Serial.flush();
-
-    // SX1262 bleibt aktiv im RX-Modus — DIO1 geht HIGH wenn Paket ankommt
-    // ISR deaktivieren (laeuft im Sleep sowieso nicht)
-    m_radio->clearDio1Action();
-
-    // ── EXT0: ESP32 wacht auf HIGH-Signal an DIO1 auf ────────
-    esp_sleep_enable_ext0_wakeup((gpio_num_t)m_dio1Pin, 1); // 1 = HIGH
-
-    esp_sleep_enable_timer_wakeup( 30 * 1000 * 1000ULL); // Backup: nach 10 Minuten aufwachen
-    
-    Serial.println("[LORA] Gehe in Deep Sleep... Tschuess!");
-    Serial.flush();
-
-    esp_deep_sleep_start();
-    // ← ab hier laeuft NICHTS mehr. Naechste Zeile: setup() nach Wake-Up
-}
-
-
-// ============================================================
-//  deepSleepUntilPacket — ESP32 schlaeft bis DIO1 HIGH
-// ============================================================
-void LORA::deepSleepUntilTimer(uint16_t sleepTimeSeconds)
-{
-    Serial.println("[LORA] Bereite Deep Sleep vor...");
-    Serial.flush();
-
-    // SX1262 bleibt aktiv im RX-Modus — DIO1 geht HIGH wenn Paket ankommt
-    // ISR deaktivieren (laeuft im Sleep sowieso nicht)
     m_radio->clearDio1Action();
     m_radio->sleep();
-
-    // ── EXT0: ESP32 wacht auf HIGH-Signal an DIO1 auf ────────
-
-
-    esp_sleep_enable_timer_wakeup( sleepTimeSeconds * 1000 * 1000ULL); // Backup: nach sleepTimeSeconds aufwachen
-
-    Serial.println("[LORA] Gehe in Deep Sleep... Tschuess!");
-    Serial.flush();
-
-    esp_deep_sleep_start();
-    // ← ab hier laeuft NICHTS mehr. Naechste Zeile: setup() nach Wake-Up
+    Serial.println("[LORA] Radio → Sleep.");
 }
+
 
 // ============================================================
 //  buildPacket

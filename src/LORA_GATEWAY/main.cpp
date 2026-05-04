@@ -1,8 +1,15 @@
-// ============================================================
-//  main.cpp  —  CAI_MINI LoRa Gateway
-//  SX1262 via RadioLib | ThingsBoard MQTT
-//  Datum: 2026-04-16
-// ============================================================
+/*
+ * ============================================================
+ *  CAI_MINI — LoRa Gateway
+ * ============================================================
+ *  Beschreibung : Empfängt LoRa Pakete von Sensoren und
+ *                 Router und sendert sie per mqtt an TB weiter
+ *  Board        : Seeed XIAO ESP32-S3
+ *  Framework    : Arduino
+ *  Autor        : maran
+ *  Erstellt     : 2026-04-01
+ * ============================================================
+ */
 
 #include "config_LORA_GATEWAY.h"
 #include <Arduino.h>

@@ -66,10 +66,13 @@ public:
 
     // ── Initialisierung ───────────────────────────────────────
     bool begin(const String& ownName);
+ 
 
     // ── Oeffentliche Methoden ─────────────────────────────────
     bool    transmit(const String& empfaenger, const String& daten);
     bool    packetReceived();
+
+    void sleepRadio();
 
     String  readData();
     String  readRawPacket();
@@ -85,9 +88,7 @@ public:
     // Setzt s_packetFlag manuell (nach Wake-Up aus Deep Sleep)
     void    forcePacketFlag();
 
-    // Aktiviert EXT0 Wake-Up auf DIO1 und startet Deep Sleep
-    void    deepSleepUntilPacketorTimer(uint16_t sleepTimeSeconds);
-    void    deepSleepUntilTimer(uint16_t sleepTimeSeconds);
+
 
     // ── Statische ISR (muss public sein fuer setDio1Action) ───
     static void IRAM_ATTR onDio1Interrupt();

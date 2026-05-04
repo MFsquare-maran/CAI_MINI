@@ -75,6 +75,7 @@ public:
 
     // Initialisierung der SD-Karte
     bool init(uint8_t sd_clk, uint8_t sd_miso, uint8_t sd_mosi, uint8_t sd_cs);
+    bool init(uint8_t sd_clk, uint8_t sd_miso, uint8_t sd_mosi, uint8_t sd_cs, SPIClass &spi);
 
     // INI-Datei lesen (füllt cfg)
     bool readIni(const char *path = "/INIT.ini");

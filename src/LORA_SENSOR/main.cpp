@@ -10,16 +10,19 @@
 #include "LORA.h"
 #include "BME680_Sensor.h"
 #include <SPI.h>
-#include <SD.h>
-#include <IniFile.h>
+#include "battery.h"
+#include "sdcard.h"
+#include "esp_wifi.h"
 
 // ============================================================
 //  Objekte
 // ============================================================
-SPIClass spi_sd(HSPI);    // SD-Karte  → HSPI Bus
-SPIClass spi_lora(FSPI);  // LoRa      → FSPI Bus
+SPIClass spi_sd(HSPI);
+SPIClass spi_lora(FSPI);
 
 BME680_Sensor bme;
+Battery       battery;
+SDCard        sdcard;
 
 LORA Lora_sensor(
     LORA_NSS,
@@ -36,133 +39,39 @@ LORA Lora_sensor(
 );
 
 // ============================================================
-//  Messwerte
+//  Zeitstempel letztes Senden
 // ============================================================
-float temperature    = 0.0f;
-float pressure       = 0.0f;
-float humidity       = 0.0f;
-float gas_resistance = 0.0f;
-float battery_voltage = 0.0f;
+unsigned long last_send = 0;
 
 // ============================================================
-//  Konfiguration aus INI
+//  CPU Frequenz helpers
 // ============================================================
-float temperature_offset = 0.0f;
-float Pressure_offset    = 0.0f;
-float Huminity_offset    = 0.0f;
-float Gas_offset         = 0.0f;
-
-char accessToken[64] = {0};
-char DeviceID[64]    = {0};
-char SenderID[64]    = {0};
-
-// ============================================================
-//  SD-Karte initialisieren
-// ============================================================
-void InitSD()
+void setCpuLow()
 {
-    spi_sd.begin(SD_CLK, SD_MISO, SD_MOSI, SD_CS);
-
-    if (!SD.begin(SD_CS, spi_sd))
-    {
-        Serial.println("[SD] FEHLER: SD-Karte konnte nicht initialisiert werden!");
-        while (1) { delay(1000); } // blockiert mit 1s Pause statt Spin
-    }
-
-    Serial.println("[SD] SD-Karte erfolgreich initialisiert.");
+    setCpuFrequencyMhz(10);
 }
 
-// ============================================================
-//  INI-Werte lesen
-// ============================================================
-void get_ini_values()
+void setCpuHigh()
 {
-    IniFile ini("/INIT.ini", FILE_READ, true);
-
-    if (!ini.open())
-    {
-        Serial.println("[INI] FEHLER: INI-Datei konnte nicht geöffnet werden!");
-        while (1) { delay(1000); }
-    }
-
-    char buffer[128];
-
-    if (ini.getValue("THINGSBOARD", "TB_TOKKEN",          buffer, sizeof(buffer))) strcpy(accessToken,       buffer);
-    if (ini.getValue("SEND_TO",     "NAME",               buffer, sizeof(buffer))) strcpy(SenderID,          buffer);
-    if (ini.getValue("ID",          "NAME",               buffer, sizeof(buffer))) strcpy(DeviceID,          buffer);
-    if (ini.getValue("BME680",      "TEMPERATURE_OFFSET", buffer, sizeof(buffer))) temperature_offset = strtof(buffer, nullptr);
-    if (ini.getValue("BME680",      "PRESSURE_OFFSET",    buffer, sizeof(buffer))) Pressure_offset    = strtof(buffer, nullptr);
-    if (ini.getValue("BME680",      "HUMINITY_OFFSET",    buffer, sizeof(buffer))) Huminity_offset    = strtof(buffer, nullptr);
-    if (ini.getValue("BME680",      "GAS_OFFSET",         buffer, sizeof(buffer))) Gas_offset         = strtof(buffer, nullptr);
-
-    Serial.println("[INI] Werte gelesen:");
-    Serial.println("      TB Token:           " + String(accessToken));
-    Serial.println("      Sender ID:          " + String(SenderID));
-    Serial.println("      Device ID:          " + String(DeviceID));
-    Serial.println("      Temp  Offset:       " + String(temperature_offset));
-    Serial.println("      Press Offset:       " + String(Pressure_offset));
-    Serial.println("      Humi  Offset:       " + String(Huminity_offset));
-    Serial.println("      Gas   Offset:       " + String(Gas_offset));
-
-    ini.close();
-
-    // SD nicht mehr nötig → freigeben
-    SD.end();
-    Serial.println("[SD] SD-Karte freigegeben.");
-}
-
-// ============================================================
-//  Akkuspannung messen (lineare Interpolation)
-// ============================================================
-float getBatteryVoltage()
-{
-    const uint8_t  N          = 8;
-    const float    voltVals[] = { 3.5f, 3.6f, 3.7f, 3.8f, 3.9f, 4.0f, 4.1f, 4.2f };
-    const uint16_t adcVals[]  = { 2644, 2720, 2801, 2889, 2972, 3060, 3155, 3249  };
-
-    uint16_t adc = (uint16_t)analogRead(BATTERY_VOLTAGE);
-
-    // Bereich suchen
-    for (uint8_t i = 0; i < N - 1; i++)
-    {
-        if (adc >= adcVals[i] && adc <= adcVals[i + 1])
-        {
-            float t = (float)(adc - adcVals[i]) /
-                      (float)(adcVals[i + 1] - adcVals[i]);
-            return voltVals[i] + t * (voltVals[i + 1] - voltVals[i]);
-        }
-    }
-
-    // Extrapolation unten
-    if (adc < adcVals[0])
-    {
-        float t = (float)(adc - adcVals[0]) /
-                  (float)(adcVals[1] - adcVals[0]);
-        return voltVals[0] + t * (voltVals[1] - voltVals[0]);
-    }
-
-    // Extrapolation oben
-    float t = (float)(adc - adcVals[N - 2]) /
-              (float)(adcVals[N - 1] - adcVals[N - 2]);
-    return voltVals[N - 2] + t * (voltVals[N - 1] - voltVals[N - 2]);
+    setCpuFrequencyMhz(240);
 }
 
 // ============================================================
 //  Sensordaten lesen + ausgeben
 // ============================================================
-bool readSensors()
+bool readSensors(float &temperature, float &pressure, float &humidity,
+                 float &gas_resistance, float &battery_voltage)
 {
-    if (!bme.readSensor())
-    {
+    if (!bme.readSensor()) {
         Serial.println("[BME680] FEHLER beim Lesen!");
         return false;
     }
 
-    temperature    = bme.getTemperature();
-    pressure       = bme.getPressure();
-    humidity       = bme.getHumidity();
-    gas_resistance = bme.getGasResistance();
-    battery_voltage = getBatteryVoltage();
+    temperature     = bme.getTemperature();
+    pressure        = bme.getPressure();
+    humidity        = bme.getHumidity();
+    gas_resistance  = bme.getGasResistance();
+    battery_voltage = battery.getVoltage();
 
     Serial.println("[BME680] Messwerte:");
     Serial.println("         Temperatur:    " + String(temperature,    2) + " °C");
@@ -178,14 +87,60 @@ bool readSensors()
 // ============================================================
 //  LoRa-Paket zusammenbauen
 // ============================================================
-String buildPayload()
+String buildPayload(float temperature, float pressure, float humidity,
+                    float gas_resistance, float battery_voltage)
 {
-    return "Token:"           + String(accessToken)                          +
-           ";Temperature:"    + String(round(temperature    * 100.0) / 100.0) +
-           ";Pressure:"       + String(round(pressure       * 100.0) / 100.0) +
-           ";Humidity:"       + String(round(humidity       * 100.0) / 100.0) +
-           ";Gas_Resistance:" + String(round(gas_resistance * 100.0) / 100.0) +
-           ";Battery_Voltage:"+ String(round(battery_voltage* 100.0) / 100.0);
+    return "Token:"            + String(sdcard.cfg.accessToken)                          +
+           ";Temperature:"     + String(round(temperature    * 100.0) / 100.0) +
+           ";Pressure:"        + String(round(pressure       * 100.0) / 100.0) +
+           ";Humidity:"        + String(round(humidity       * 100.0) / 100.0) +
+           ";Gas_Resistance:"  + String(round(gas_resistance * 100.0) / 100.0) +
+           ";Battery_Voltage:" + String(round(battery_voltage* 100.0) / 100.0);
+}
+
+// ============================================================
+//  Messen + Senden
+// ============================================================
+void measureAndSend()
+{
+    setCpuHigh();
+
+    // ── LoRa aufwecken ────────────────────────────────────────
+    Serial.println("[SENSOR] Wecke LoRa auf...");
+    if (!Lora_sensor.begin(sdcard.cfg.DeviceID)) {
+        Serial.println("[LORA] KRITISCH: Initialisierung fehlgeschlagen!");
+        setCpuLow();
+        return;
+    }
+
+    // ── Messen ────────────────────────────────────────────────
+    float temperature, pressure, humidity, gas_resistance, battery_voltage;
+
+    if (!readSensors(temperature, pressure, humidity, gas_resistance, battery_voltage)) {
+        Serial.println("[SENSOR] Sensor Fehler – überspringe Sendung.");
+    } else {
+        // ── Senden ────────────────────────────────────────────
+        digitalWrite(LED_BLUE, HIGH);
+        bool ok = Lora_sensor.transmit(sdcard.cfg.SenderID,
+                      buildPayload(temperature, pressure, humidity,
+                                   gas_resistance, battery_voltage));
+        digitalWrite(LED_BLUE, LOW);
+
+        if (ok) {
+            Serial.println("[SENSOR] ✅ Paket erfolgreich gesendet.");
+            Serial.println("         Gesendet gesamt: " + String(Lora_sensor.getSentCount()));
+        } else {
+            Serial.println("[SENSOR] ❌ Senden fehlgeschlagen nach allen Versuchen.");
+        }
+    }
+
+    // ── LoRa schlafen schicken ────────────────────────────────
+    Serial.println("[SENSOR] LoRa → Sleep.");
+    Lora_sensor.sleepRadio(); // nur Radio schlafen, kein ESP32-Sleep
+
+    last_send = millis();
+    Serial.println("[SENSOR] Gute Nacht! Warte auf nächsten Zyklus...");
+    setCpuLow();
 }
 
 // ============================================================
@@ -193,8 +148,9 @@ String buildPayload()
 // ============================================================
 void setup()
 {
+    setCpuFrequencyMhz(240);
     Serial.begin(115200);
-    delay(2000);
+    delay(500);
 
     Serial.println("╔══════════════════════════════╗");
     Serial.println("║   CAI_MINI LoRa Sensor       ║");
@@ -202,29 +158,26 @@ void setup()
     Serial.print("Firmware Version: ");
     Serial.println(FW_VERSION);
 
-    // LED
     pinMode(LED_BLUE, OUTPUT);
     digitalWrite(LED_BLUE, LOW);
 
-    // SD + INI
-    InitSD();
-    get_ini_values();
+    // ── WiFi deaktivieren ─────────────────────────────────────
+    esp_wifi_stop();
 
-    // BME680
+    // ── SD + INI ──────────────────────────────────────────────
+    sdcard.init(SD_CLK, SD_MISO, SD_MOSI, SD_CS, spi_sd);
+    sdcard.readIni("/INIT.ini");
+
+    // ── Sensoren ──────────────────────────────────────────────
+    battery.begin(BATTERY_VOLTAGE);
     bme.begin();
-    bme.set_offset(temperature_offset,
-                   Pressure_offset,
-                   Huminity_offset,
-                   Gas_offset);
+    bme.set_offset(sdcard.cfg.temperature_offset,
+                   sdcard.cfg.Pressure_offset,
+                   sdcard.cfg.Huminity_offset,
+                   sdcard.cfg.Gas_offset);
 
-    // LoRa (ISR wird intern in begin() registriert)
-    if (!Lora_sensor.begin(DeviceID))
-    {
-        Serial.println("[LORA] KRITISCH: Initialisierung fehlgeschlagen!");
-        while (1) { delay(1000); }
-    }
-
-    Serial.println("[SETUP] Bereit. Starte Messzyklus...");
+    // ── Erstes Senden sofort beim Start ───────────────────────
+    measureAndSend();
 }
 
 // ============================================================
@@ -232,34 +185,11 @@ void setup()
 // ============================================================
 void loop()
 {
-    // ── 1. Sensordaten lesen ──────────────────────────────────
-    if (!readSensors())
+    if (millis() - last_send >= (unsigned long)SEND_INTERVAL_SEC * 1000UL)
     {
-        Serial.println("[LOOP] Sensor Fehler – überspringe Sendung.");
-        delay(5000);
-        return;
+        measureAndSend();
     }
 
-    // ── 2. Senden ─────────────────────────────────────────────
-    digitalWrite(LED_BLUE, HIGH);
-
-    bool ok = Lora_sensor.transmit(SenderID, buildPayload());
-
-    digitalWrite(LED_BLUE, LOW);
-
-    if (ok)
-    {
-        Serial.println("[LOOP] ✅ Paket erfolgreich gesendet.");
-        Serial.println("       Gesendet gesamt: " + String(Lora_sensor.getSentCount()));
-    }
-    else
-    {
-        Serial.println("[LOOP] ❌ Senden fehlgeschlagen nach allen Versuchen.");
-    }
-
-    // ── 3. Warten bis zum nächsten Zyklus ────────────────────
-    Serial.println("[LOOP] Warte 5s bis zum nächsten Zyklus...");
-    Serial.println("Gute Nacht! 😴");
-
-    Lora_sensor.deepSleepUntilTimer(10*60); // Geht in Deep Sleep, wacht auf bei neuem LoRa-Paket oder nach 10 Minuten (Backup) 
+    // ── Kurz yielden ──────────────────────────────────────────
+    delay(10);
 }

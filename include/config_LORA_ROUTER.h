@@ -43,6 +43,8 @@
 
 #define SHUTDOWN_PIN 8
 
+#define SEND_INTERVAL_SEC (10*60)
+
 #define FW_VERSION "1.0.0_Router" // Firmware-Version
 
 
