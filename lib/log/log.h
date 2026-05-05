@@ -13,18 +13,13 @@ LOG("SENSORDATEN");
 
 #include <Arduino.h> 
 
+#pragma once
+
 #ifdef LOG_TELNET
-
-
-#include <TelnetStream.h>  
-
-#define logln(x) { Serial.println(x); TelnetStream.println(x);}
-#define logf(x)  { Serial.print(x); TelnetStream.print(x);}
-
-
+  #include <TelnetStream.h>
+  #define logln(x) do { Serial.println(x); if(WiFi.status()==WL_CONNECTED) TelnetStream.println(x); } while(0)
+  #define logf(x)  do { Serial.print(x);   if(WiFi.status()==WL_CONNECTED) TelnetStream.print(x);   } while(0)
 #else
-
-#define logln(x) Serial.println(x);
-#define logf(x) Serial.print(x);
-
+  #define logln(x) do { Serial.println(x); } while(0)
+  #define logf(x)  do { Serial.print(x);   } while(0)
 #endif

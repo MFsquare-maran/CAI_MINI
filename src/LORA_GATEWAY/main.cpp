@@ -19,34 +19,19 @@
 #include <Arduino_MQTT_Client.h>
 #include <ThingsBoard.h>
 #include "credentials.h"
-#include "FirmwareUpdater.h" 
+#include "FirmwareUpdater.h"
 #include "log.h"
-//TODO
-
-/*
-// In setup(), nach InitWiFi():
-TelnetStream.begin();       // 2. Telnet starten
-
-// Überall wo du logln(...) schreibst:
-#define LOG(x) { logln(x); TelnetStream.logln(x); }
-
-LOG("SENSORDATEN");
-
-*/
-
 
 // ============================================================
 //  Netzwerk & ThingsBoard Konfiguration
 // ============================================================
-const char* WIFI_SSID           = WLAN_SSID;
-const char* WIFI_PASSWORD       = WLAN_PW;
-const char* TB_SERVER           = "iot.mfsquare.ch";
-const char* TB_TOKEN_GATEWAY    = GATEWAY_TOKEN;
-const uint16_t TB_PORT      = 1884;
+const char* WIFI_SSID        = WLAN_SSID;
+const char* WIFI_PASSWORD    = WLAN_PW;
+const char* TB_SERVER        = "iot.mfsquare.ch";
+const char* TB_TOKEN_GATEWAY = GATEWAY_TOKEN;
+const uint16_t TB_PORT       = 1884;
 
 char accessToken[64] = {0};
-
-
 
 unsigned long last_gateway_send = 0;
 
@@ -78,11 +63,10 @@ LORA Lora_gateway(
     2000    // ackTimeout  [ms]
 );
 
-//============================================================
-// Firmware Updater
-//============================================================
-
-FirmwareUpdater updater; // Firmware-Update-Objekt
+// ============================================================
+//  Firmware Updater
+// ============================================================
+FirmwareUpdater updater;
 
 // ============================================================
 //  WiFi initialisieren
@@ -92,7 +76,7 @@ void InitWiFi()
     logln("[WIFI] Verbinde mit: " + String(WIFI_SSID));
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD, 0, nullptr, true);
 
-    unsigned long start   = millis();
+    unsigned long start    = millis();
     const uint32_t TIMEOUT = 15000UL;
 
     while (WiFi.status() != WL_CONNECTED &&
@@ -100,7 +84,7 @@ void InitWiFi()
     {
         delay(500);
         logf(".");
-        digitalWrite(LED_BOARD, !digitalRead(LED_BOARD)); // blinken
+        digitalWrite(LED_BOARD, !digitalRead(LED_BOARD));
     }
 
     digitalWrite(LED_BOARD, OFF);
@@ -119,10 +103,10 @@ void InitWiFi()
 // ============================================================
 //  ThingsBoard verbinden
 // ============================================================
-bool InitTB(const char* tb_server , const char* access_token, uint16_t tb_port)
+bool InitTB(const char* tb_server, const char* access_token, uint16_t tb_port)
 {
     logln("[TB] Verbinde mit: " + String(tb_server) +
-                   " | Token: "         + String(access_token));
+          " | Token: " + String(access_token));
 
     if (!tb.connect(tb_server, access_token, tb_port))
     {
@@ -144,7 +128,24 @@ void ensureWiFi()
         logln("[WIFI] Verbindung verloren – reconnect...");
         WiFi.disconnect();
         delay(500);
-        InitWiFi();
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD, 0, nullptr, true);
+
+        unsigned long start    = millis();
+        const uint32_t TIMEOUT = 15000UL;
+
+        while (WiFi.status() != WL_CONNECTED &&
+               millis() - start < TIMEOUT)
+        {
+            delay(500);
+            logf(".");
+            digitalWrite(LED_BOARD, !digitalRead(LED_BOARD));
+        }
+        digitalWrite(LED_BOARD, OFF);
+
+        if (WiFi.status() == WL_CONNECTED)
+            logln("\n[WIFI] ✅ Reconnect erfolgreich!");
+        else
+            logln("\n[WIFI] ❌ Reconnect fehlgeschlagen!");
     }
 }
 
@@ -155,6 +156,14 @@ void sendToThingsBoard(const SensorPacket& p)
 {
     strlcpy(accessToken, p.token, sizeof(accessToken));
     ensureWiFi();
+
+    // FIX 3: Vorherige Verbindung sauber trennen
+    if (tb.connected())
+    {
+        tb.disconnect();
+        delay(100);
+    }
+
     if (!InitTB(TB_SERVER, accessToken, TB_PORT)) return;
 
     tb.sendTelemetryData("Temperature",    round(p.temperature    * 100.0) / 100.0);
@@ -163,20 +172,20 @@ void sendToThingsBoard(const SensorPacket& p)
     tb.sendTelemetryData("Gas_Resistance", round(p.gasResistance  * 100.0) / 100.0);
     tb.sendTelemetryData("Battery_Voltage",round(p.batteryVoltage * 100.0) / 100.0);
 
-    // ── RSSI: Gateway-RSSI anhängen falls noch leer ───────────
+    // ── RSSI: Gateway-RSSI anhängen falls noch leer ──────────
     float rssi_to_send;
-    if (p.rssi == -1.0f) {
-        // kein RSSI im Paket → Gateway hängt seinen eigenen an
+    if (p.rssi == -1.0f)
+    {
         rssi_to_send = Lora_gateway.getLastRSSI();
         logln("[TB] RSSI vom Gateway: " + String(rssi_to_send, 1) + " dBm");
-    } else {
-        // RSSI bereits vom Router gesetzt → weiterverwenden
+    }
+    else
+    {
         rssi_to_send = p.rssi;
         logln("[TB] RSSI vom Router:  " + String(rssi_to_send, 1) + " dBm");
     }
     tb.sendAttributeData("rssi", round(rssi_to_send * 10.0) / 10.0);
-
-    tb.sendAttributeData("snr", round(Lora_gateway.getLastSNR() * 10.0) / 10.0);
+    tb.sendAttributeData("snr",  round(Lora_gateway.getLastSNR() * 10.0) / 10.0);
 
     logln("[TB] ✅ Daten gesendet.");
     tb.loop();
@@ -212,72 +221,66 @@ void handlePacket()
 }
 
 // ============================================================
-//  Akku-Spannung lesen (mit Kalibrierungstabelle für HELTEC-Boards)
+//  Akku-Spannung lesen (Kalibrierungstabelle für HELTEC-Boards)
 // ============================================================
+float readBattVoltage_heltec(uint8_t adc_pin)
+{
+    uint32_t raw = 0;
+    for (int i = 0; i < 20; i++)
+        raw += analogReadMilliVolts(adc_pin) * (4.095f / 3.95f);
 
-float readBattVoltage_heltec(uint8_t adc_pin) {
-  uint32_t raw = 0;
-  for (int i = 0; i < 20; i++) {
-    raw += analogReadMilliVolts(adc_pin)*(4.095f/3.95f);
-  }
-  float avg_mv = raw / 20.0;
-  // Spannungsteiler zurückrechnen: 100k / (100k + 390k)
-  return avg_mv * (490.0 / 100.0) / 1000.0; // in Volt
+    float avg_mv = raw / 20.0f;
+    return avg_mv * (490.0f / 100.0f) / 1000.0f;
 }
 
 // ============================================================
-//  gateway send
+//  Gateway-Daten senden + OTA prüfen
 // ============================================================
 void gateway_send()
 {
-        logln("[GATEWAY] Sending data to ThingsBoard.");
-        ensureWiFi();
+    logln("[GATEWAY] Sending data to ThingsBoard.");
+    ensureWiFi();
 
-        digitalWrite(LED_BOARD, ON);
+    digitalWrite(LED_BOARD, ON);
 
-        InitTB(TB_SERVER, TB_TOKEN_GATEWAY, TB_PORT);
-
-
-        tb.sendAttributeData("rssi", WiFi.RSSI());
-        tb.sendAttributeData("channel", WiFi.channel());
-        tb.sendAttributeData("bssid", WiFi.BSSIDstr().c_str());
-        tb.sendAttributeData("localIp", WiFi.localIP().toString().c_str());
-        tb.sendAttributeData("ssid", WiFi.SSID().c_str());
-        tb.sendAttributeData("fwversion", FW_VERSION);
-
-        #ifdef HELTEC_WSL_V3
-            
-            float voltage = readBattVoltage_heltec(VBAT_PIN);
-        
-            tb.sendTelemetryData("Battery_Voltage", ((voltage* 100.0) / 100.0));
-            logf("Batery Voltage = ");
-            logf((voltage * 100.0) / 100.0);
-            logln(" V");
-
-        #endif
-
-        #ifdef SEED_XIAO_ESP32S3
-
-            tb.sendTelemetryData("Battery_Voltage", random(3500, 4201) / 1000.0 );
-
-        #endif
-
-        logln("[TB] ✅ Daten gesendet.");
-
-        tb.loop(); // Keep-Alive für MQTT-Verbindung
-        delay(1000);
+    // FIX 3: Vorherige Verbindung sauber trennen
+    if (tb.connected())
+    {
         tb.disconnect();
+        delay(100);
+    }
 
-        digitalWrite(LED_BOARD, OFF);
+    InitTB(TB_SERVER, TB_TOKEN_GATEWAY, TB_PORT);
 
-        logln("[GATEWAY] Check for Updates...");
+    tb.sendAttributeData("rssi",      WiFi.RSSI());
+    tb.sendAttributeData("channel",   WiFi.channel());
+    tb.sendAttributeData("bssid",     WiFi.BSSIDstr().c_str());
+    tb.sendAttributeData("localIp",   WiFi.localIP().toString().c_str());
+    tb.sendAttributeData("ssid",      WiFi.SSID().c_str());
+    tb.sendAttributeData("fwversion", FW_VERSION);
 
-        updater.checkAndUpdate(TB_SERVER,TB_TOKEN_GATEWAY,FW_VERSION,0);
+#ifdef HELTEC_WSL_V3
+    float voltage = readBattVoltage_heltec(VBAT_PIN);
+    tb.sendTelemetryData("Battery_Voltage", (voltage * 100.0f) / 100.0f);
+    logf("[GATEWAY] Battery Voltage = ");
+    logf(voltage);
+    logln(" V");
+#endif
 
+#ifdef SEED_XIAO_ESP32S3
+    tb.sendTelemetryData("Battery_Voltage", random(3500, 4201) / 1000.0f);
+#endif
 
+    logln("[TB] ✅ Daten gesendet.");
+    tb.loop();
+    delay(1000);
+    tb.disconnect();
+
+    digitalWrite(LED_BOARD, OFF);
+
+    logln("[GATEWAY] Check for Updates...");
+    updater.checkAndUpdate(TB_SERVER, TB_TOKEN_GATEWAY, FW_VERSION, 0);
 }
-
-
 
 // ============================================================
 //  setup()
@@ -293,24 +296,40 @@ void setup()
     logf("Firmware Version: ");
     logln(FW_VERSION);
 
-    // ── LEDs ─────────────────────────────────────────────────
-    
+    // ── LEDs ────────────────────────────────────────────────
     pinMode(LED_BOARD, OUTPUT);
     digitalWrite(LED_BOARD, ON);
 
-    #ifdef HELTEC_WSL_V3
+#ifdef HELTEC_WSL_V3
+    pinMode(VBAT_PIN, INPUT);
+    pinMode(ADC_CTRL_PIN, OUTPUT);
+    digitalWrite(ADC_CTRL_PIN, LOW);
+#endif
 
-        pinMode(VBAT_PIN, INPUT); //HELTEC-Boards haben VBAT intern mit ADC verbunden, daher INPUT
-        pinMode(ADC_CTRL_PIN, OUTPUT); //HELTEC-Boards haben ADC_CTRL intern mit VBAT verbunden, daher OUTPUT und HIGH für Messung
-        digitalWrite(ADC_CTRL_PIN, LOW); // LOW für normale Messung, HIGH für Kalibrierung (je nach Board nötig)
-
-    #endif
-    // ── WiFi ─────────────────────────────────────────────────
+    // ── FIX 1: WiFi ZUERST ──────────────────────────────────
     InitWiFi();
 
-    // ── LoRa ─────────────────────────────────────────────────
-    // KEIN pinMode(LORA_DIO1, INPUT) hier! 
-    // RadioLib / LORA::begin() übernimmt den Pin komplett.
+    // ── FIX 1: TelnetStream erst NACH WiFi starten ──────────
+#ifdef LOG_TELNET
+    TelnetStream.begin();
+    logln("[TELNET] TelnetStream gestartet.");
+    logln("[TELNET] Warte auf Telnet-Verbindung... (5s) – Taste druecken nach Connect!");
+
+    unsigned long telnetWait = millis();
+    while (TelnetStream.available() == 0 && millis() - telnetWait < 5000)
+    {
+        delay(100);
+        digitalWrite(LED_BOARD, !digitalRead(LED_BOARD));
+    }
+    digitalWrite(LED_BOARD, OFF);
+
+    if (TelnetStream.available() > 0)
+        logln("[TELNET] ✅ Client verbunden!");
+    else
+        logln("[TELNET] Kein Client – fahre ohne Telnet fort.");
+#endif
+
+    // ── LoRa ────────────────────────────────────────────────
     if (!Lora_gateway.begin("GATEWAY01"))
     {
         logln("[LORA] KRITISCH: Initialisierung fehlgeschlagen!");
@@ -320,7 +339,6 @@ void setup()
     gateway_send();
 
     logln("[SETUP] ✅ Bereit – warte auf LoRa Pakete...");
-
 }
 
 // ============================================================
@@ -329,8 +347,7 @@ void setup()
 void loop()
 {
     unsigned long now = millis();
-    // ── Interrupt-basiert: packetReceived() prüft s_packetFlag ──
-    // KEIN digitalRead(LORA_DIO1) mehr nötig!
+
     if (Lora_gateway.packetReceived())
     {
         digitalWrite(LED_BOARD, ON);
@@ -338,16 +355,11 @@ void loop()
         digitalWrite(LED_BOARD, OFF);
     }
 
-    if(now - last_gateway_send > gateway_send_interval * 60UL * 1000UL)
+    if (now - last_gateway_send > gateway_send_interval * 60UL * 1000UL)
     {
         logln("[GATEWAY] Send interval reached.");
         logln("[GATEWAY] Sending data to ThingsBoard.");
-
         gateway_send();
-
-        last_gateway_send =  now;
-
+        last_gateway_send = now;
     }
-
- 
 }

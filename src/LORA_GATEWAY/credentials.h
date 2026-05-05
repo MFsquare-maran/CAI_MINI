@@ -1,4 +1,0 @@
-
-#define WLAN_SSID "XXXXXX"
-#define WLAN_PW "XXXXXX"
-#define GATEWAY_TOKEN "XXXXXX"
