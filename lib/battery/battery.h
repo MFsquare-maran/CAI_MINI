@@ -2,6 +2,7 @@
 #define BATTERY_H
 
 #include <stdint.h>
+#include "log.h"
 
 class Battery {
 public:

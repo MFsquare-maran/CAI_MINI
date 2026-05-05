@@ -1,6 +1,6 @@
 #pragma once
 #include <Arduino.h>
-
+#include "log.h"
 struct SensorPacket
 {
     char    sender[64];

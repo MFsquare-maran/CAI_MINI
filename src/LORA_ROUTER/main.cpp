@@ -19,6 +19,7 @@
 #include <WiFi.h>
 #include <Arduino_MQTT_Client.h>
 #include <ThingsBoard.h>
+#include "log.h"
 
 // ============================================================
 //  Objekte
@@ -70,15 +71,15 @@ unsigned long sending_period = 1; // 1min.
 // ============================================================
 
 void InitTB() {
-    Serial.print("Connecting to: ");
-    Serial.print(sdcard.cfg.thingsboardServer);
-    Serial.print(" with token ");
-    Serial.println(sdcard.cfg.accessToken);
+    logf("Connecting to: ");
+    logf(sdcard.cfg.thingsboardServer);
+    logf(" with token ");
+    logln(sdcard.cfg.accessToken);
 
     if (!tb.connect(sdcard.cfg.thingsboardServer, sdcard.cfg.accessToken, sdcard.cfg.THINGSBOARD_PORT)) {
-        Serial.println("Failed to connect to ThingsBoard");
+        logln("Failed to connect to ThingsBoard");
     } else {
-        Serial.println("Connected to ThingsBoard");
+        logln("Connected to ThingsBoard");
     }
 }
 
@@ -88,13 +89,13 @@ void InitTB() {
 void setCpuLow()
 {
     setCpuFrequencyMhz(10);
-    Serial.println("[PM] CPU → 10 MHz (Idle)");
+    logln("[PM] CPU → 10 MHz (Idle)");
 }
 
 void setCpuHigh()
 {
     setCpuFrequencyMhz(240);
-    Serial.println("[PM] CPU → 240 MHz (Aktiv)");
+    logln("[PM] CPU → 240 MHz (Aktiv)");
 }
 
 
@@ -109,8 +110,8 @@ void forwardPacket()
     String data   = Lora_router.readData();
     float  rssi   = Lora_router.getLastRSSI();  // ← RSSI des empfangenen Pakets
 
-    Serial.println("[ROUTER] Paket empfangen von: " + sender);
-    Serial.println("[ROUTER] RSSI vom Sensor:      " + String(rssi, 1) + " dBm");
+    logln("[ROUTER] Paket empfangen von: " + sender);
+    logln("[ROUTER] RSSI vom Sensor:      " + String(rssi, 1) + " dBm");
 
     // ── RSSI anhängen (leeres Feld ersetzen oder hinzufügen) ──
     if (data.endsWith("RSSI:")) {
@@ -122,14 +123,14 @@ void forwardPacket()
     }
     // sonst: RSSI bereits befüllt → nicht überschreiben
 
-    Serial.println("[ROUTER] Weiterleiten: " + data);
+    logln("[ROUTER] Weiterleiten: " + data);
 
     digitalWrite(LED_BLUE, HIGH);
     bool ok = Lora_router.transmit(sdcard.cfg.SenderID, data);
     digitalWrite(LED_BLUE, LOW);
 
-    if (ok) Serial.println("[ROUTER] ✅ Paket weitergeleitet.");
-    else    Serial.println("[ROUTER] ❌ Weiterleiten fehlgeschlagen.");
+    if (ok) logln("[ROUTER] ✅ Paket weitergeleitet.");
+    else    logln("[ROUTER] ❌ Weiterleiten fehlgeschlagen.");
 
     setCpuLow();
 }
@@ -140,10 +141,10 @@ void forwardPacket()
 void sendOwnPacket()
 {
     setCpuHigh();
-    Serial.println("[ROUTER] Sende eigenes Paket...");
+    logln("[ROUTER] Sende eigenes Paket...");
 
     if (!bme.readSensor()) {
-        Serial.println("[BME680] FEHLER beim Lesen!");
+        logln("[BME680] FEHLER beim Lesen!");
         setCpuLow();
         return;
     }
@@ -167,8 +168,8 @@ void sendOwnPacket()
     bool ok = Lora_router.transmit(sdcard.cfg.SenderID, payload);
     digitalWrite(LED_ORANGE, HIGH);
 
-    if (ok) Serial.println("[ROUTER] ✅ Eigenes Paket gesendet.");
-    else    Serial.println("[ROUTER] ❌ Senden fehlgeschlagen.");
+    if (ok) logln("[ROUTER] ✅ Eigenes Paket gesendet.");
+    else    logln("[ROUTER] ❌ Senden fehlgeschlagen.");
 
     setCpuLow();
 }
@@ -187,11 +188,11 @@ void setup()
     Serial.begin(115200);
     delay(3000);
 
-    Serial.println("╔══════════════════════════════╗");
-    Serial.println("║   CAI_MINI LoRa Router       ║");
-    Serial.println("╚══════════════════════════════╝");
-    Serial.print("Firmware Version: ");
-    Serial.println(FW_VERSION);
+    logln("╔══════════════════════════════╗");
+    logln("║   CAI_MINI LoRa Router       ║");
+    logln("╚══════════════════════════════╝");
+    logf("Firmware Version: ");
+    logln(FW_VERSION);
 
     pinMode(LED_BLUE,   OUTPUT); digitalWrite(LED_BLUE,   LOW);
     pinMode(LED_ORANGE, OUTPUT); digitalWrite(LED_ORANGE, HIGH);
@@ -213,13 +214,13 @@ void setup()
 
     // ── LoRa ──────────────────────────────────────────────────
     if (!Lora_router.begin(sdcard.cfg.DeviceID)) {
-        Serial.println("[LORA] KRITISCH: Initialisierung fehlgeschlagen!");
+        logln("[LORA] KRITISCH: Initialisierung fehlgeschlagen!");
         while (1) { delay(1000); }
     }
 
 
 
-    Serial.println("[SETUP] ✅ Bereit ");
+    logln("[SETUP] ✅ Bereit ");
 
         
     sending_period = sdcard.cfg.sending_period;
@@ -249,7 +250,7 @@ void loop()
 
         if (InitWiFi(sdcard.cfg.ssid,sdcard.cfg.password)) 
         {
-            Serial.println("\n🔧 Checking for firmware updates...");
+            logln("\n🔧 Checking for firmware updates...");
             updater.checkAndUpdate(sdcard.cfg.thingsboardServer, sdcard.cfg.accessToken, FW_VERSION, 1);
             InitTB();
             tb.sendAttributeData("channel",   WiFi.channel());

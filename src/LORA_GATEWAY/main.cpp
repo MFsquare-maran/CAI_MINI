@@ -19,17 +19,16 @@
 #include <Arduino_MQTT_Client.h>
 #include <ThingsBoard.h>
 #include "credentials.h"
-#include "FirmwareUpdater.h"
-#include <TelnetStream.h>   
-
+#include "FirmwareUpdater.h" 
+#include "log.h"
 //TODO
 
 /*
 // In setup(), nach InitWiFi():
 TelnetStream.begin();       // 2. Telnet starten
 
-// Überall wo du Serial.println(...) schreibst:
-#define LOG(x) { Serial.println(x); TelnetStream.println(x); }
+// Überall wo du logln(...) schreibst:
+#define LOG(x) { logln(x); TelnetStream.logln(x); }
 
 LOG("SENSORDATEN");
 
@@ -90,7 +89,7 @@ FirmwareUpdater updater; // Firmware-Update-Objekt
 // ============================================================
 void InitWiFi()
 {
-    Serial.println("[WIFI] Verbinde mit: " + String(WIFI_SSID));
+    logln("[WIFI] Verbinde mit: " + String(WIFI_SSID));
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD, 0, nullptr, true);
 
     unsigned long start   = millis();
@@ -100,7 +99,7 @@ void InitWiFi()
            millis() - start < TIMEOUT)
     {
         delay(500);
-        Serial.print(".");
+        logf(".");
         digitalWrite(LED_BOARD, !digitalRead(LED_BOARD)); // blinken
     }
 
@@ -108,12 +107,12 @@ void InitWiFi()
 
     if (WiFi.status() == WL_CONNECTED)
     {
-        Serial.println("\n[WIFI] ✅ Verbunden!");
-        Serial.println("[WIFI] IP: " + WiFi.localIP().toString());
+        logln("\n[WIFI] ✅ Verbunden!");
+        logln("[WIFI] IP: " + WiFi.localIP().toString());
     }
     else
     {
-        Serial.println("\n[WIFI] ❌ Verbindung fehlgeschlagen (Timeout)!");
+        logln("\n[WIFI] ❌ Verbindung fehlgeschlagen (Timeout)!");
     }
 }
 
@@ -122,16 +121,16 @@ void InitWiFi()
 // ============================================================
 bool InitTB(const char* tb_server , const char* access_token, uint16_t tb_port)
 {
-    Serial.println("[TB] Verbinde mit: " + String(tb_server) +
+    logln("[TB] Verbinde mit: " + String(tb_server) +
                    " | Token: "         + String(access_token));
 
     if (!tb.connect(tb_server, access_token, tb_port))
     {
-        Serial.println("[TB] ❌ Verbindung fehlgeschlagen!");
+        logln("[TB] ❌ Verbindung fehlgeschlagen!");
         return false;
     }
 
-    Serial.println("[TB] ✅ Verbunden!");
+    logln("[TB] ✅ Verbunden!");
     return true;
 }
 
@@ -142,7 +141,7 @@ void ensureWiFi()
 {
     if (WiFi.status() != WL_CONNECTED)
     {
-        Serial.println("[WIFI] Verbindung verloren – reconnect...");
+        logln("[WIFI] Verbindung verloren – reconnect...");
         WiFi.disconnect();
         delay(500);
         InitWiFi();
@@ -169,17 +168,17 @@ void sendToThingsBoard(const SensorPacket& p)
     if (p.rssi == -1.0f) {
         // kein RSSI im Paket → Gateway hängt seinen eigenen an
         rssi_to_send = Lora_gateway.getLastRSSI();
-        Serial.println("[TB] RSSI vom Gateway: " + String(rssi_to_send, 1) + " dBm");
+        logln("[TB] RSSI vom Gateway: " + String(rssi_to_send, 1) + " dBm");
     } else {
         // RSSI bereits vom Router gesetzt → weiterverwenden
         rssi_to_send = p.rssi;
-        Serial.println("[TB] RSSI vom Router:  " + String(rssi_to_send, 1) + " dBm");
+        logln("[TB] RSSI vom Router:  " + String(rssi_to_send, 1) + " dBm");
     }
     tb.sendAttributeData("rssi", round(rssi_to_send * 10.0) / 10.0);
 
     tb.sendAttributeData("snr", round(Lora_gateway.getLastSNR() * 10.0) / 10.0);
 
-    Serial.println("[TB] ✅ Daten gesendet.");
+    logln("[TB] ✅ Daten gesendet.");
     tb.loop();
     delay(1000);
     tb.disconnect();
@@ -193,21 +192,21 @@ void handlePacket()
     String sender  = Lora_gateway.readSender();
     String payload = Lora_gateway.readData();
 
-    Serial.println("[LORA] ── Neues Paket ─────────────────────────");
-    Serial.println("        Sender          : " + sender);
-    Serial.println("        Payload         : " + payload);
+    logln("[LORA] ── Neues Paket ─────────────────────────");
+    logln("        Sender          : " + sender);
+    logln("        Payload         : " + payload);
 
     SensorPacket packed = parseSensorPacket(sender, payload);
 
-    Serial.println("        Token           : " + String(packed.token));
-    Serial.println("        Temperatur      : " + String(packed.temperature,    2) + " °C");
-    Serial.println("        Luftdruck       : " + String(packed.pressure,       2) + " hPa");
-    Serial.println("        Luftfeuchtigkeit: " + String(packed.humidity,       2) + " %");
-    Serial.println("        Gaswiderstand   : " + String(packed.gasResistance,  2) + " kOhm");
-    Serial.println("        Batterie        : " + String(packed.batteryVoltage, 2) + " V");
-    Serial.println("        RSSI            : " + String(Lora_gateway.getLastRSSI(), 1) + " dBm");
-    Serial.println("        SNR             : " + String(Lora_gateway.getLastSNR(),  1) + " dB");
-    Serial.println("[LORA] ──────────────────────────────────────────");
+    logln("        Token           : " + String(packed.token));
+    logln("        Temperatur      : " + String(packed.temperature,    2) + " °C");
+    logln("        Luftdruck       : " + String(packed.pressure,       2) + " hPa");
+    logln("        Luftfeuchtigkeit: " + String(packed.humidity,       2) + " %");
+    logln("        Gaswiderstand   : " + String(packed.gasResistance,  2) + " kOhm");
+    logln("        Batterie        : " + String(packed.batteryVoltage, 2) + " V");
+    logln("        RSSI            : " + String(Lora_gateway.getLastRSSI(), 1) + " dBm");
+    logln("        SNR             : " + String(Lora_gateway.getLastSNR(),  1) + " dB");
+    logln("[LORA] ──────────────────────────────────────────");
 
     sendToThingsBoard(packed);
 }
@@ -231,7 +230,7 @@ float readBattVoltage_heltec(uint8_t adc_pin) {
 // ============================================================
 void gateway_send()
 {
-        Serial.println("[GATEWAY] Sending data to ThingsBoard.");
+        logln("[GATEWAY] Sending data to ThingsBoard.");
         ensureWiFi();
 
         digitalWrite(LED_BOARD, ON);
@@ -251,9 +250,9 @@ void gateway_send()
             float voltage = readBattVoltage_heltec(VBAT_PIN);
         
             tb.sendTelemetryData("Battery_Voltage", ((voltage* 100.0) / 100.0));
-            Serial.print("Batery Voltage = ");
-            Serial.print((voltage * 100.0) / 100.0);
-            Serial.println(" V");
+            logf("Batery Voltage = ");
+            logf((voltage * 100.0) / 100.0);
+            logln(" V");
 
         #endif
 
@@ -263,7 +262,7 @@ void gateway_send()
 
         #endif
 
-        Serial.println("[TB] ✅ Daten gesendet.");
+        logln("[TB] ✅ Daten gesendet.");
 
         tb.loop(); // Keep-Alive für MQTT-Verbindung
         delay(1000);
@@ -271,7 +270,7 @@ void gateway_send()
 
         digitalWrite(LED_BOARD, OFF);
 
-        Serial.println("[GATEWAY] Check for Updates...");
+        logln("[GATEWAY] Check for Updates...");
 
         updater.checkAndUpdate(TB_SERVER,TB_TOKEN_GATEWAY,FW_VERSION,0);
 
@@ -288,11 +287,11 @@ void setup()
     Serial.begin(115200);
     delay(3000);
 
-    Serial.println("╔══════════════════════════════╗");
-    Serial.println("║    LoRa Gateway              ║");
-    Serial.println("╚══════════════════════════════╝");
-    Serial.print("Firmware Version: ");
-    Serial.println(FW_VERSION);
+    logln("╔══════════════════════════════╗");
+    logln("║    LoRa Gateway              ║");
+    logln("╚══════════════════════════════╝");
+    logf("Firmware Version: ");
+    logln(FW_VERSION);
 
     // ── LEDs ─────────────────────────────────────────────────
     
@@ -314,13 +313,13 @@ void setup()
     // RadioLib / LORA::begin() übernimmt den Pin komplett.
     if (!Lora_gateway.begin("GATEWAY01"))
     {
-        Serial.println("[LORA] KRITISCH: Initialisierung fehlgeschlagen!");
+        logln("[LORA] KRITISCH: Initialisierung fehlgeschlagen!");
         while (1) { delay(1000); }
     }
 
     gateway_send();
 
-    Serial.println("[SETUP] ✅ Bereit – warte auf LoRa Pakete...");
+    logln("[SETUP] ✅ Bereit – warte auf LoRa Pakete...");
 
 }
 
@@ -341,8 +340,8 @@ void loop()
 
     if(now - last_gateway_send > gateway_send_interval * 60UL * 1000UL)
     {
-        Serial.println("[GATEWAY] Send interval reached.");
-        Serial.println("[GATEWAY] Sending data to ThingsBoard.");
+        logln("[GATEWAY] Send interval reached.");
+        logln("[GATEWAY] Sending data to ThingsBoard.");
 
         gateway_send();
 

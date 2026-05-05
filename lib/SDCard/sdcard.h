@@ -7,7 +7,7 @@
 #include <FS.h>
 #include <IniFile.h>
 #include <math.h>     // NAN, isnan()
-
+#include "log.h"
 // ============================================================
 //  Konfigurations-Struct (wird aus der INI gefüllt)
 // ============================================================

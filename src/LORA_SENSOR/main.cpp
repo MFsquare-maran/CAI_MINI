@@ -18,6 +18,7 @@
 #include <WiFi.h>
 #include <Arduino_MQTT_Client.h>
 #include <ThingsBoard.h>
+#include "log.h"
 
 // ============================================================
 //  Objekte
@@ -72,15 +73,15 @@ unsigned long sending_period = 1;// Standard: 1Min.
 // ============================================================
 
 void InitTB() {
-    Serial.print("Connecting to: ");
-    Serial.print(sdcard.cfg.thingsboardServer);
-    Serial.print(" with token ");
-    Serial.println(sdcard.cfg.accessToken);
+    logf("Connecting to: ");
+    logf(sdcard.cfg.thingsboardServer);
+    logf(" with token ");
+    logln(sdcard.cfg.accessToken);
 
     if (!tb.connect(sdcard.cfg.thingsboardServer, sdcard.cfg.accessToken, sdcard.cfg.THINGSBOARD_PORT)) {
-        Serial.println("Failed to connect to ThingsBoard");
+        logln("Failed to connect to ThingsBoard");
     } else {
-        Serial.println("Connected to ThingsBoard");
+        logln("Connected to ThingsBoard");
     }
 }
 
@@ -106,7 +107,7 @@ bool readSensors(float &temperature, float &pressure, float &humidity,
                  float &gas_resistance, float &battery_voltage)
 {
     if (!bme.readSensor()) {
-        Serial.println("[BME680] FEHLER beim Lesen!");
+        logln("[BME680] FEHLER beim Lesen!");
         return false;
     }
 
@@ -116,13 +117,13 @@ bool readSensors(float &temperature, float &pressure, float &humidity,
     gas_resistance  = bme.getGasResistance();
     battery_voltage = battery.getVoltage();
 
-    Serial.println("[BME680] Messwerte:");
-    Serial.println("         Temperatur:    " + String(temperature,    2) + " °C");
-    Serial.println("         Luftdruck:     " + String(pressure,       2) + " hPa");
-    Serial.println("         Luftfeuchte:   " + String(humidity,       2) + " %");
-    Serial.println("         Gaswiderstand: " + String(gas_resistance, 2) + " kOhm");
-    Serial.println("         Akku:          " + String(battery_voltage,2) + " V");
-    Serial.println("         --------------------------------");
+    logln("[BME680] Messwerte:");
+    logln("         Temperatur:    " + String(temperature,    2) + " °C");
+    logln("         Luftdruck:     " + String(pressure,       2) + " hPa");
+    logln("         Luftfeuchte:   " + String(humidity,       2) + " %");
+    logln("         Gaswiderstand: " + String(gas_resistance, 2) + " kOhm");
+    logln("         Akku:          " + String(battery_voltage,2) + " V");
+    logln("         --------------------------------");
 
     return true;
 }
@@ -150,9 +151,9 @@ void measureAndSend()
     setCpuHigh();
 
     // ── LoRa aufwecken ────────────────────────────────────────
-    Serial.println("[SENSOR] Wecke LoRa auf...");
+    logln("[SENSOR] Wecke LoRa auf...");
     if (!Lora_sensor.begin(sdcard.cfg.DeviceID)) {
-        Serial.println("[LORA] KRITISCH: Initialisierung fehlgeschlagen!");
+        logln("[LORA] KRITISCH: Initialisierung fehlgeschlagen!");
         setCpuLow();
         return;
     }
@@ -161,7 +162,7 @@ void measureAndSend()
     float temperature, pressure, humidity, gas_resistance, battery_voltage;
 
     if (!readSensors(temperature, pressure, humidity, gas_resistance, battery_voltage)) {
-        Serial.println("[SENSOR] Sensor Fehler – überspringe Sendung.");
+        logln("[SENSOR] Sensor Fehler – überspringe Sendung.");
     } else {
         // ── Senden ────────────────────────────────────────────
         digitalWrite(LED_BLUE, HIGH);
@@ -171,19 +172,19 @@ void measureAndSend()
         digitalWrite(LED_BLUE, LOW);
 
         if (ok) {
-            Serial.println("[SENSOR] ✅ Paket erfolgreich gesendet.");
-            Serial.println("         Gesendet gesamt: " + String(Lora_sensor.getSentCount()));
+            logln("[SENSOR] ✅ Paket erfolgreich gesendet.");
+            logln("         Gesendet gesamt: " + String(Lora_sensor.getSentCount()));
         } else {
-            Serial.println("[SENSOR] ❌ Senden fehlgeschlagen nach allen Versuchen.");
+            logln("[SENSOR] ❌ Senden fehlgeschlagen nach allen Versuchen.");
         }
     }
 
     // ── LoRa schlafen schicken ────────────────────────────────
-    Serial.println("[SENSOR] LoRa → Sleep.");
+    logln("[SENSOR] LoRa → Sleep.");
     Lora_sensor.sleepRadio(); // nur Radio schlafen, kein ESP32-Sleep
 
     last_send = millis();
-    Serial.println("[SENSOR] Gute Nacht! Warte auf nächsten Zyklus...");
+    logln("[SENSOR] Gute Nacht! Warte auf nächsten Zyklus...");
     setCpuLow();
 }
 
@@ -196,11 +197,11 @@ void setup()
     Serial.begin(115200);
     delay(3000);
 
-    Serial.println("╔══════════════════════════════╗");
-    Serial.println("║   CAI_MINI LoRa Sensor       ║");
-    Serial.println("╚══════════════════════════════╝");
-    Serial.print("Firmware Version: ");
-    Serial.println(FW_VERSION);
+    logln("╔══════════════════════════════╗");
+    logln("║   CAI_MINI LoRa Sensor       ║");
+    logln("╚══════════════════════════════╝");
+    logf("Firmware Version: ");
+    logln(FW_VERSION);
 
     pinMode(LED_BLUE, OUTPUT);
     digitalWrite(LED_BLUE, LOW);
@@ -239,7 +240,7 @@ void loop()
 
         if (InitWiFi(sdcard.cfg.ssid,sdcard.cfg.password)) 
         {
-            Serial.println("\n🔧 Checking for firmware updates...");
+            logln("\n🔧 Checking for firmware updates...");
             updater.checkAndUpdate(sdcard.cfg.thingsboardServer, sdcard.cfg.accessToken, FW_VERSION, 1);
             InitTB();
             tb.sendAttributeData("channel",   WiFi.channel());

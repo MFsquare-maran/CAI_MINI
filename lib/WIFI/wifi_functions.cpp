@@ -5,8 +5,8 @@
 // ============================================================
 
 bool InitWiFi(char ssid[64],char password[64]) {
-    Serial.println();
-    Serial.print("Connecting to "); Serial.println(ssid);
+    logln();
+    logf("Connecting to "); logln(ssid);
 
     WiFi.begin(ssid, password, 0, nullptr, true);
 
@@ -15,28 +15,28 @@ bool InitWiFi(char ssid[64],char password[64]) {
 
     while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < timeout) {
         delay(500);
-        Serial.print(".");
+        logf(".");
     }
-    Serial.println("");
+    logln("");
     if (WiFi.status() != WL_CONNECTED) {
 
-        Serial.println("❌ WiFi konnte nicht verbunden werden.");
+        logln("❌ WiFi konnte nicht verbunden werden.");
         return false;
     }
 
     digitalWrite(LED_BUILTIN, HIGH);
-    Serial.println("\n✅ WiFi connected");
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
+    logln("\n✅ WiFi connected");
+    logf("IP address: ");
+    logln(WiFi.localIP());
     return true;
 }
 
 void disconnectWiFi(WiFiClient* wifiClient) {
-    Serial.println("Disconnecting WiFi...");
+    logln("Disconnecting WiFi...");
     wifiClient->stop();
     WiFi.disconnect(true);
     delay(50);
     WiFi.mode(WIFI_OFF);
-    Serial.println("✅ WiFi disconnected");
+    logln("✅ WiFi disconnected");
     
 }

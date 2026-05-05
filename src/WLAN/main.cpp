@@ -22,6 +22,8 @@
 #include "sdcard.h"
 #include "battery.h"
 
+#include "log.h"
+
 // ============================================================
 // Konstanten
 // ============================================================
@@ -77,7 +79,7 @@ IniFile ini("/INIT.ini", FILE_READ, true);
 // Shutdown Funktion (wieder integriert)
 // ============================================================
 void system_shutdown() {
-    Serial.println("System shutdown.");
+    logln("System shutdown.");
     Serial.flush();
     delay(1000);
 
@@ -92,15 +94,15 @@ void system_shutdown() {
 // ThingsBoard
 // ============================================================
 void InitTB() {
-    Serial.print("Connecting to: ");
-    Serial.print(sdcard.cfg.thingsboardServer);
-    Serial.print(" with token ");
-    Serial.println(sdcard.cfg.accessToken);
+    logf("Connecting to: ");
+    logf(sdcard.cfg.thingsboardServer);
+    logf(" with token ");
+    logln(sdcard.cfg.accessToken);
 
     if (!tb.connect(sdcard.cfg.thingsboardServer, sdcard.cfg.accessToken, sdcard.cfg.THINGSBOARD_PORT)) {
-        Serial.println("Failed to connect to ThingsBoard");
+        logln("Failed to connect to ThingsBoard");
     } else {
-        Serial.println("Connected to ThingsBoard");
+        logln("Connected to ThingsBoard");
     }
 }
 
@@ -111,11 +113,11 @@ void setup() {
     Serial.begin(SERIAL_DEBUG_BAUD);
     delay(5000);
 
-    Serial.println("╔══════════════════════════════╗");
-    Serial.println("║   CAI_MINI WLAN              ║");
-    Serial.println("╚══════════════════════════════╝");
-    Serial.print("Firmware Version: ");
-    Serial.println(FW_VERSION);
+    logln("╔══════════════════════════════╗");
+    logln("║   CAI_MINI WLAN              ║");
+    logln("╚══════════════════════════════╝");
+    logf("Firmware Version: ");
+    logln(FW_VERSION);
 
     // --- Pins ---
     pinMode(LED_BLUE, OUTPUT);
@@ -143,7 +145,7 @@ void setup() {
     // WiFi
     // ============================================================
     if (InitWiFi(sdcard.cfg.ssid, sdcard.cfg.password) == false) {
-        Serial.println("WiFi failed -> shutdown");
+        logln("WiFi failed -> shutdown");
         delay(300);
         system_shutdown();
         return;
@@ -158,7 +160,7 @@ void setup() {
     // ============================================================
     // Firmware Update
     // ============================================================
-    Serial.println("\n🔧 Checking for firmware updates...");
+    logln("\n🔧 Checking for firmware updates...");
     updater.checkAndUpdate(thingsboardServer, accessToken, FW_VERSION, 1);
 
     // ============================================================
@@ -173,15 +175,15 @@ void setup() {
         data.gas_resistance  = bme.getGasResistance();
         data.battery_voltage = battery.getVoltage();
 
-        Serial.println("------------------------------------");
-        Serial.print("Temperature = "); Serial.println(data.temperature);
-        Serial.print("Pressure    = "); Serial.println(data.pressure);
-        Serial.print("Humidity    = "); Serial.println(data.humidity);
-        Serial.print("Gas         = "); Serial.println(data.gas_resistance);
-        Serial.print("Battery     = "); Serial.println(data.battery_voltage);
-        Serial.println("------------------------------------");
+        logln("------------------------------------");
+        logf("Temperature = "); logln(data.temperature);
+        logf("Pressure    = "); logln(data.pressure);
+        logf("Humidity    = "); logln(data.humidity);
+        logf("Gas         = "); logln(data.gas_resistance);
+        logf("Battery     = "); logln(data.battery_voltage);
+        logln("------------------------------------");
     } else {
-        Serial.println("Fehler beim Lesen des BME680 Sensors.");
+        logln("Fehler beim Lesen des BME680 Sensors.");
     }
 
     bme.disable();

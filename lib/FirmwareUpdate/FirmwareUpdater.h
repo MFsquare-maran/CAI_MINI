@@ -6,6 +6,7 @@
 #include <ArduinoHttpClient.h>
 #include <ArduinoJson.h>
 #include <SD.h>
+#include "log.h"
 
 struct FirmwareInfo {
     String version;

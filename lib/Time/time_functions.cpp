@@ -16,16 +16,16 @@ bool LocalTime(char datetime[30], tm* timeinfo) {
 
     while (!getLocalTime(timeinfo)) {   // ← kein & davor, timeinfo ist schon Pointer
         if (millis() - start > timeout) {
-            Serial.println("⚠️ NTP Timeout – keine Zeit empfangen");
+            logln("⚠️ NTP Timeout – keine Zeit empfangen");
             datetime[0] = '\0';
             return false;
         }
-        Serial.println("Warte auf NTP...");
+        logln("Warte auf NTP...");
         delay(500);
     }
 
     strftime(datetime, 30, "%Y-%m-%d %H:%M:%S", timeinfo);  // ← kein &, und sizeof-Problem (s.u.)
-    Serial.print("Aktuelle Zeit: ");
-    Serial.println(datetime);
+    logf("Aktuelle Zeit: ");
+    logln(datetime);
     return true;
 }

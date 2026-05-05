@@ -28,7 +28,7 @@ bool FirmwareUpdater::checkAndUpdate(const char* server,
     _deviceToken = token;
     _currentVersion = currentVersion;
 
-    Serial.println("🔍 Checking firmware update...");
+    logln("🔍 Checking firmware update...");
 
     closeConnection();
     _http = new HttpClient(_wifiClient, _server, 443);
@@ -41,11 +41,11 @@ bool FirmwareUpdater::checkAndUpdate(const char* server,
     int statusCode = _http->responseStatusCode();
     String response = _http->responseBody();
 
-    Serial.print("HTTP: ");
-    Serial.println(statusCode);
+    logf("HTTP: ");
+    logln(statusCode);
 
     if (statusCode != 200) {
-        Serial.println("❌ HTTP error");
+        logln("❌ HTTP error");
         closeConnection();
         return false;
     }
@@ -53,7 +53,7 @@ bool FirmwareUpdater::checkAndUpdate(const char* server,
     response.trim();
 
     if (response.length() < 5 || response == "{}") {
-        Serial.println("ℹ️ No firmware info");
+        logln("ℹ️ No firmware info");
         closeConnection();
         return false;
     }
@@ -61,18 +61,18 @@ bool FirmwareUpdater::checkAndUpdate(const char* server,
     FirmwareInfo fw = extractFirmwareInfo(response);
 
     if (fw.version.length() == 0) {
-        Serial.println("⚠️ No version found");
+        logln("⚠️ No version found");
         closeConnection();
         return false;
     }
 
     if (fw.version == _currentVersion) {
-        Serial.println("✅ Firmware up to date");
+        logln("✅ Firmware up to date");
         closeConnection();
         return false;
     }
 
-    Serial.println("🆕 New firmware: " + fw.version);
+    logln("🆕 New firmware: " + fw.version);
 
     String downloadPath = "/api/v1/" + String(_deviceToken) +
                           "/firmware?title=" + fw.title +
@@ -82,7 +82,7 @@ bool FirmwareUpdater::checkAndUpdate(const char* server,
         cleanupOldFirmware();
 
         if (!downloadFirmwareToSD(downloadPath, fw.version)) {
-            Serial.println("❌ SD download failed");
+            logln("❌ SD download failed");
             closeConnection();
             return false;
         }
@@ -104,7 +104,7 @@ FirmwareInfo FirmwareUpdater::extractFirmwareInfo(const String& payload) {
 
     DynamicJsonDocument doc(1024);
     if (deserializeJson(doc, payload)) {
-        Serial.println("❌ JSON parse error");
+        logln("❌ JSON parse error");
         return info;
     }
 
@@ -150,7 +150,7 @@ void FirmwareUpdater::cleanupOldFirmware() {
 bool FirmwareUpdater::downloadFirmwareToSD(const String& path,
                                            const String& version) {
 
-    Serial.println("📥 Download firmware to SD...");
+    logln("📥 Download firmware to SD...");
 
     _http->get(path.c_str());
 
@@ -158,13 +158,13 @@ bool FirmwareUpdater::downloadFirmwareToSD(const String& path,
     int len  = _http->contentLength();
 
     if (code != 200 || len <= 0) {
-        Serial.println("❌ Download HTTP error");
+        logln("❌ Download HTTP error");
         return false;
     }
 
     File file = SD.open(_firmwareFile, FILE_WRITE);
     if (!file) {
-        Serial.println("❌ File open error");
+        logln("❌ File open error");
         return false;
     }
 
@@ -185,14 +185,14 @@ bool FirmwareUpdater::downloadFirmwareToSD(const String& path,
     String newName = "/firmware_" + version + ".bin";
     SD.rename(_firmwareFile, newName.c_str());
 
-    Serial.println("✅ Download done");
+    logln("✅ Download done");
     return true;
 }
 
 // =========================
 bool FirmwareUpdater::downloadAndFlashDirect(const String& path) {
 
-    Serial.println("📥 Streaming OTA (no SD)...");
+    logln("📥 Streaming OTA (no SD)...");
 
     _http->get(path.c_str());
 
@@ -200,12 +200,12 @@ bool FirmwareUpdater::downloadAndFlashDirect(const String& path) {
     int len  = _http->contentLength();
 
     if (code != 200 || len <= 0) {
-        Serial.println("❌ HTTP error beim Stream");
+        logln("❌ HTTP error beim Stream");
         return false;
     }
 
     if (!Update.begin(len)) {
-        Serial.println("❌ Update.begin() failed");
+        logln("❌ Update.begin() failed");
         return false;
     }
 
@@ -216,7 +216,7 @@ bool FirmwareUpdater::downloadAndFlashDirect(const String& path) {
         int r = _http->readBytes(buf, sizeof(buf));
         if (r > 0) {
             if (Update.write(buf, r) != r) {
-                Serial.println("❌ Write error");
+                logln("❌ Write error");
                 Update.abort();
                 return false;
             }
@@ -226,11 +226,11 @@ bool FirmwareUpdater::downloadAndFlashDirect(const String& path) {
     }
 
     if (!Update.end() || !Update.isFinished()) {
-        Serial.println("❌ OTA nicht abgeschlossen");
+        logln("❌ OTA nicht abgeschlossen");
         return false;
     }
 
-    Serial.println("✅ Stream-OTA success → reboot");
+    logln("✅ Stream-OTA success → reboot");
     delay(2000);
     ESP.restart();
     return true;
@@ -239,18 +239,18 @@ bool FirmwareUpdater::downloadAndFlashDirect(const String& path) {
 // =========================
 bool FirmwareUpdater::updateFromSD(const String& fileName) {
 
-    Serial.println("🔄 OTA update from SD...");
+    logln("🔄 OTA update from SD...");
 
     File file = SD.open(fileName);
     if (!file) {
-        Serial.println("❌ File not found");
+        logln("❌ File not found");
         return false;
     }
 
     size_t size = file.size();
 
     if (!Update.begin(size)) {
-        Serial.println("❌ OTA begin failed");
+        logln("❌ OTA begin failed");
         file.close();
         return false;
     }
@@ -264,16 +264,16 @@ bool FirmwareUpdater::updateFromSD(const String& fileName) {
     file.close();
 
     if (!Update.end()) {
-        Serial.println("❌ OTA failed");
+        logln("❌ OTA failed");
         return false;
     }
 
     if (!Update.isFinished()) {
-        Serial.println("❌ OTA not finished");
+        logln("❌ OTA not finished");
         return false;
     }
 
-    Serial.println("✅ OTA success → reboot");
+    logln("✅ OTA success → reboot");
     delay(2000);
     ESP.restart();
 

@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include "config_WIND.h"
+#include "log.h"
 
 #define GUST_WINDOW_SEC 3
 #define MAX_DIR_POINTS 16

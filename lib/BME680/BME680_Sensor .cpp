@@ -6,11 +6,11 @@ bool BME680_Sensor::begin() {
     Wire.begin();
 
     while (!_bme.begin(_address)) {
-        Serial.println("❌ BME680 nicht gefunden!");
+        logln("❌ BME680 nicht gefunden!");
         delay(1000); // Warte vor erneutem Versuch
     }
 
-    Serial.println("✅ BME680 initialisiert!");
+    logln("✅ BME680 initialisiert!");
 
     _bme.setTemperatureOversampling(BME680_OS_8X);
     _bme.setHumidityOversampling(BME680_OS_2X);
@@ -23,7 +23,7 @@ bool BME680_Sensor::begin() {
 
 bool BME680_Sensor::readSensor() {
     if (!_bme.performReading()) {
-        Serial.println("⚠️ Fehler beim Auslesen des BME680!");
+        logln("⚠️ Fehler beim Auslesen des BME680!");
         return false;
     }
     return true;
@@ -53,7 +53,7 @@ void BME680_Sensor::set_offset(float temperature,float pressure,float huminity,f
 }
 
 void BME680_Sensor::enable() {
-    Serial.println("🟢 BME680 enabled");
+    logln("🟢 BME680 enabled");
 
     _bme.setTemperatureOversampling(BME680_OS_8X);
     _bme.setHumidityOversampling(BME680_OS_2X);
@@ -68,7 +68,7 @@ void BME680_Sensor::enable() {
 }
 
 void BME680_Sensor::disable() {
-    Serial.println("🔴 BME680 disabled");
+    logln("🔴 BME680 disabled");
 
     // Heater AUS
     _bme.setGasHeater(0, 0);

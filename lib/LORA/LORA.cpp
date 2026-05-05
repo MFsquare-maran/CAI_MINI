@@ -70,15 +70,15 @@ bool LORA::begin(const String& ownName)
 
     gpio_install_isr_service(0);
 
-    Serial.println("[LORA] Initialisiere SX1262...");
-    Serial.println("[LORA] Konfiguration:");
-    Serial.println("       Eigenname:    " + m_ownName);
-    Serial.println("       Frequenz:     " + String(LORA_FREQ)     + " MHz");
-    Serial.println("       Bandbreite:   " + String(LORA_BW)       + " kHz");
-    Serial.println("       SF:           " + String(LORA_SF));
-    Serial.println("       CR:           " + String(LORA_CR));
-    Serial.println("       Leistung:     " + String(LORA_TX_POWER) + " dBm");
-    Serial.println("       Sync Word:    0x" + String(SYNC_WORD, HEX));
+    logln("[LORA] Initialisiere SX1262...");
+    logln("[LORA] Konfiguration:");
+    logln("       Eigenname:    " + m_ownName);
+    logln("       Frequenz:     " + String(LORA_FREQ)     + " MHz");
+    logln("       Bandbreite:   " + String(LORA_BW)       + " kHz");
+    logln("       SF:           " + String(LORA_SF));
+    logln("       CR:           " + String(LORA_CR));
+    logln("       Leistung:     " + String(LORA_TX_POWER) + " dBm");
+    logln("       Sync Word:    0x" + String(SYNC_WORD, HEX));
 
     int state = m_radio->begin(LORA_FREQ,
                                LORA_BW,
@@ -89,7 +89,7 @@ bool LORA::begin(const String& ownName)
 
     if (state != RADIOLIB_ERR_NONE)
     {
-        Serial.println("[LORA] FEHLER bei Initialisierung! Code: " +
+        logln("[LORA] FEHLER bei Initialisierung! Code: " +
                        String(state));
         return false;
     }
@@ -105,12 +105,12 @@ bool LORA::begin(const String& ownName)
     state = m_radio->startReceive();
     if (state != RADIOLIB_ERR_NONE)
     {
-        Serial.println("[LORA] FEHLER bei startReceive()! Code: " +
+        logln("[LORA] FEHLER bei startReceive()! Code: " +
                        String(state));
         return false;
     }
 
-    Serial.println("[LORA] Initialisierung erfolgreich!");
+    logln("[LORA] Initialisierung erfolgreich!");
     return true;
 }
 
@@ -124,12 +124,12 @@ bool LORA::transmit(const String& empfaenger, const String& daten)
 
     for (int versuch = 1; versuch <= m_maxRetries; versuch++)
     {
-        Serial.println("[LORA] Sende (Versuch " + String(versuch) +
+        logln("[LORA] Sende (Versuch " + String(versuch) +
                        "/" + String(m_maxRetries) + "): " + packet);
 
         if (!sendRaw(packet))
         {
-            Serial.println("[LORA] Senden fehlgeschlagen (RadioLib Fehler)");
+            logln("[LORA] Senden fehlgeschlagen (RadioLib Fehler)");
             delay(m_retryDelay);
             continue;
         }
@@ -137,16 +137,16 @@ bool LORA::transmit(const String& empfaenger, const String& daten)
         if (waitForAck(empfaenger))
         {
             m_sentCount++;
-            Serial.println("[LORA] ACK erhalten von: " + empfaenger);
+            logln("[LORA] ACK erhalten von: " + empfaenger);
             return true;
         }
 
-        Serial.println("[LORA] Kein ACK. Warte " +
+        logln("[LORA] Kein ACK. Warte " +
                        String(m_retryDelay) + "ms...");
         delay(m_retryDelay);
     }
 
-    Serial.println("[LORA] Alle " + String(m_maxRetries) +
+    logln("[LORA] Alle " + String(m_maxRetries) +
                    " Versuche fehlgeschlagen fuer: " + empfaenger);
     return false;
 }
@@ -159,11 +159,11 @@ bool LORA::packetReceived()
     String raw = tryReceive();
     if (raw.length() == 0) return false;
 
-    Serial.println("[LORA] Rohpaket empfangen: " + raw);
+    logln("[LORA] Rohpaket empfangen: " + raw);
 
     if (!parsePacket(raw))
     {
-        Serial.println("[LORA] Paket nicht fuer mich oder ungueltig. Ignoriere.");
+        logln("[LORA] Paket nicht fuer mich oder ungueltig. Ignoriere.");
         return false;
     }
 
@@ -191,14 +191,14 @@ float    LORA::getLastSNR()             { return m_lastSNR;        }
 void LORA::forcePacketFlag()
 {
     s_packetFlag = true;
-    Serial.println("[LORA] forcePacketFlag() gesetzt (Wake-Up Pfad)");
+    logln("[LORA] forcePacketFlag() gesetzt (Wake-Up Pfad)");
 }
 
 void LORA::sleepRadio()
 {
     m_radio->clearDio1Action();
     m_radio->sleep();
-    Serial.println("[LORA] Radio → Sleep.");
+    logln("[LORA] Radio → Sleep.");
 }
 
 
@@ -241,7 +241,7 @@ bool LORA::sendRaw(const String& packet)
         return true;
     }
 
-    Serial.println("[LORA] sendRaw Fehler: " + String(state));
+    logln("[LORA] sendRaw Fehler: " + String(state));
     return false;
 }
 
@@ -274,7 +274,7 @@ bool LORA::waitForAck(const String& expectedSender)
             typ     == LORA_TYPE_ACK  &&
             payload == LORA_ACK_PAYLOAD)
         {
-            Serial.println("[LORA] ACK empfangen von: " + sender);
+            logln("[LORA] ACK empfangen von: " + sender);
             return true;
         }
 
@@ -282,7 +282,7 @@ bool LORA::waitForAck(const String& expectedSender)
         // → sofort ACK-en damit Gegenseite nicht im Deadlock haengt!
         if (dest == m_ownName && typ == LORA_TYPE_DATA)
         {
-            Serial.println("[LORA] DATA waehrend ACK-Wait von: " +
+            logln("[LORA] DATA waehrend ACK-Wait von: " +
                            sender + " → sende ACK zurueck");
             parsePacket(incoming);
             m_newPacket = true;
@@ -293,10 +293,10 @@ bool LORA::waitForAck(const String& expectedSender)
         }
 
         // ── Fall 3: Wirklich fremdes Paket ───────────────────
-        Serial.println("[LORA] Fremdes Paket ignoriert: " + incoming);
+        logln("[LORA] Fremdes Paket ignoriert: " + incoming);
     }
 
-    Serial.println("[LORA] ACK Timeout fuer: " + expectedSender);
+    logln("[LORA] ACK Timeout fuer: " + expectedSender);
     return false;
 }
 
@@ -306,7 +306,7 @@ bool LORA::waitForAck(const String& expectedSender)
 void LORA::sendAck(const String& empfaenger)
 {
     String ackPacket = buildPacket(empfaenger, LORA_TYPE_ACK, LORA_ACK_PAYLOAD);
-    Serial.println("[LORA] Sende ACK an: " + empfaenger);
+    logln("[LORA] Sende ACK an: " + empfaenger);
     delay(20); // kurze Pause — Sender muss in RX sein
     sendRaw(ackPacket);
 }
@@ -336,14 +336,14 @@ String LORA::tryReceive()
     {
         m_lastRSSI = m_radio->getRSSI();
         m_lastSNR  = m_radio->getSNR();
-        Serial.println("[LORA] RSSI: " + String(m_lastRSSI, 1) +
+        logln("[LORA] RSSI: " + String(m_lastRSSI, 1) +
                        " dBm | SNR: "  + String(m_lastSNR,  1) + " dB");
         return received;
     }
 
     if (state != RADIOLIB_ERR_RX_TIMEOUT)
     {
-        Serial.println("[LORA] Empfangsfehler: " + String(state));
+        logln("[LORA] Empfangsfehler: " + String(state));
     }
 
     return "";
@@ -369,7 +369,7 @@ bool LORA::parsePacket(const String& raw)
 
     if (sender.length() == 0 || typ.length() == 0)
     {
-        Serial.println("[LORA] Paket ungueltig (fehlende Felder)");
+        logln("[LORA] Paket ungueltig (fehlende Felder)");
         return false;
     }
 
@@ -379,9 +379,9 @@ bool LORA::parsePacket(const String& raw)
     m_lastSender    = sender;
     m_lastData      = payload;
 
-    Serial.println("[LORA] Paket gueltig!");
-    Serial.println("       Von:   " + m_lastSender);
-    Serial.println("       Daten: " + m_lastData);
+    logln("[LORA] Paket gueltig!");
+    logln("       Von:   " + m_lastSender);
+    logln("       Daten: " + m_lastData);
 
     return true;
 }

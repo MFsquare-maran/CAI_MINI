@@ -4,6 +4,7 @@
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include "Adafruit_BME680.h"
+#include "log.h"
 
 class BME680_Sensor {
 public:

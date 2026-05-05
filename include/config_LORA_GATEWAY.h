@@ -65,6 +65,8 @@
 
 #define gateway_send_interval 10 // 10 minutes
 
+
+
 #define FW_VERSION "1.0.4_GATEWAY" // Firmware-Version
 
 

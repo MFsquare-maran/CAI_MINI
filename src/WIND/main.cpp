@@ -32,7 +32,7 @@
 #include "time_functions.h"
 #include "sdcard.h"
 #include "battery.h"
-
+#include "log.h"
 
 // ============================================================
 //  Konstanten
@@ -116,15 +116,15 @@ Battery battery;
 // ============================================================
 
 void InitTB() {
-    Serial.print("Connecting to: ");
-    Serial.print(sdcard.cfg.thingsboardServer);
-    Serial.print(" with token ");
-    Serial.println(sdcard.cfg.accessToken);
+    logf("Connecting to: ");
+    logf(sdcard.cfg.thingsboardServer);
+    logf(" with token ");
+    logln(sdcard.cfg.accessToken);
 
     if (!tb.connect(sdcard.cfg.thingsboardServer, sdcard.cfg.accessToken, sdcard.cfg.THINGSBOARD_PORT)) {
-        Serial.println("Failed to connect to ThingsBoard");
+        logln("Failed to connect to ThingsBoard");
     } else {
-        Serial.println("Connected to ThingsBoard");
+        logln("Connected to ThingsBoard");
     }
 }
 
@@ -136,11 +136,11 @@ void setup() {
     Serial.begin(SERIAL_DEBUG_BAUD);
     delay(5000);
 
-    Serial.println("╔══════════════════════════════╗");
-    Serial.println("║   CAI_MINI WIND              ║");
-    Serial.println("╚══════════════════════════════╝");
-    Serial.print("Firmware Version: ");
-    Serial.println(FW_VERSION);
+    logln("╔══════════════════════════════╗");
+    logln("║   CAI_MINI WIND              ║");
+    logln("╚══════════════════════════════╝");
+    logf("Firmware Version: ");
+    logln(FW_VERSION);
 
     sdcard.init(SD_CLK, SD_MISO,SD_MOSI,SD_CS);
 
@@ -179,8 +179,8 @@ void loop() {
 
     // --- Testmodus: Wind-ADC-Rohwert per Seriell ausgeben ---
     if (wind_direction_test == 1) {
-        Serial.print("Wind Direction ADC Test Value: ");
-        Serial.println(windRain.get_wind_direction_raw());
+        logf("Wind Direction ADC Test Value: ");
+        logln(windRain.get_wind_direction_raw());
         delay(1000);
         return;
     }
@@ -190,7 +190,7 @@ void loop() {
 
     if (now - last_10min >= sending_period) {
 
-        Serial.println("Sending");
+        logln("Sending");
 
         windRain.disable_interrupts();
 
@@ -207,15 +207,15 @@ void loop() {
             data.gas_resistance = bme.getGasResistance();
             data.battery_voltage = battery.getVoltage();
 
-            Serial.println("------------------------------------");
-            Serial.print("Temperature    = "); Serial.print(data.temperature);    Serial.println(" °C");
-            Serial.print("Pressure       = "); Serial.print(data.pressure);       Serial.println(" hPa");
-            Serial.print("Humidity       = "); Serial.print(data.humidity);       Serial.println(" %");
-            Serial.print("Gas Resistance = "); Serial.print(data.gas_resistance); Serial.println(" kOhms");
-            Serial.print("Battery        = "); Serial.print(data.battery_voltage); Serial.println(" V");
-            Serial.println("------------------------------------");
+            logln("------------------------------------");
+            logf("Temperature    = "); logf(data.temperature);    logln(" °C");
+            logf("Pressure       = "); logf(data.pressure);       logln(" hPa");
+            logf("Humidity       = "); logf(data.humidity);       logln(" %");
+            logf("Gas Resistance = "); logf(data.gas_resistance); logln(" kOhms");
+            logf("Battery        = "); logf(data.battery_voltage); logln(" V");
+            logln("------------------------------------");
         } else {
-            Serial.println("Fehler beim Lesen des BME680 Sensors.");
+            logln("Fehler beim Lesen des BME680 Sensors.");
         }
         bme.disable();
 
@@ -230,12 +230,12 @@ void loop() {
 
         windRain.reset_all();
 
-        Serial.println("------------------------------------");
-        Serial.print("Wind Direction  = "); Serial.print(data.wind_vane);        Serial.println(" °");
-        Serial.print("Wind Avg        = "); Serial.print(data.wind_speed_avg);   Serial.println(" m/s");
-        Serial.print("Wind Gust       = "); Serial.print(data.wind_speed_gust);  Serial.println(" m/s");
-        Serial.print("Rain Amount     = "); Serial.print(data.rain_gauge);      Serial.println(" mm");
-        Serial.println("------------------------------------");
+        logln("------------------------------------");
+        logf("Wind Direction  = "); logf(data.wind_vane);        logln(" °");
+        logf("Wind Avg        = "); logf(data.wind_speed_avg);   logln(" m/s");
+        logf("Wind Gust       = "); logf(data.wind_speed_gust);  logln(" m/s");
+        logf("Rain Amount     = "); logf(data.rain_gauge);      logln(" mm");
+        logln("------------------------------------");
 
         digitalWrite(LED_BLUE, HIGH);
 
@@ -243,7 +243,7 @@ void loop() {
         // --- WiFi verbinden ---
         if (InitWiFi(sdcard.cfg.ssid,sdcard.cfg.password) == false) {
             last_10min = now;
-            Serial.println("Probiere später nochmals");
+            logln("Probiere später nochmals");
             digitalWrite(LED_BLUE, LOW);
             // trotzdem loggen, aber ohne Zeit:
             sdcard.writeLog(data,"/data.csv");
@@ -260,7 +260,7 @@ void loop() {
         sdcard.writeLog(data,"/data.csv");
 
         // --- Firmware-Update prüfen ---
-        Serial.println("\n🔧 Checking for firmware updates...");
+        logln("\n🔧 Checking for firmware updates...");
         updater.checkAndUpdate(sdcard.cfg.thingsboardServer, sdcard.cfg.accessToken, FW_VERSION, 1);
 
         // --- Daten an ThingsBoard senden ---

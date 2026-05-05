@@ -17,7 +17,7 @@ void IRAM_ATTR isr_wind() {
 void setup() {
     Serial.begin(SERIAL_DEBUG_BAUD);
     delay(3000);
-    Serial.println("Interrupt-Test Start");
+    logln("Interrupt-Test Start");
 
     pinMode(WIND_SPEED, INPUT_PULLDOWN);
     pinMode(RAIN_GAUGE, INPUT_PULLDOWN);
@@ -29,9 +29,9 @@ void setup() {
 }
 
 void loop() {
-    Serial.print("Wind: ");
-    Serial.print(wind_count);
-    Serial.print("   Rain: ");
-    Serial.println(rain_count);
+    logf("Wind: ");
+    logf(wind_count);
+    logf("   Rain: ");
+    logln(rain_count);
     delay(500);
 }
