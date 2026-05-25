@@ -22,7 +22,8 @@ void _telnetLog(const char* msg, bool newline) {
         memcpy(ts, "[--:--:--:--:--] \0\0\0\0\0", 23);
     }
 
-    TelnetStream.print(ts);
+    // Wenn write() 0 zurückgibt ist kein Client verbunden
+    if (TelnetStream.write((const uint8_t*)ts, strlen(ts)) == 0) return;
 
     if (newline)
         TelnetStream.println(msg);
@@ -30,3 +31,4 @@ void _telnetLog(const char* msg, bool newline) {
         TelnetStream.print(msg);
 #endif
 }
+

@@ -397,4 +397,13 @@ void loop()
         gateway_send();
         last_gateway_send = now;
     }
+
+#ifdef LOG_TELNET
+    static unsigned long last_telnet_ping = 0;
+    if (now - last_telnet_ping > 5000)
+    {
+        TelnetStream.print("");
+        last_telnet_ping = now;
+    }
+#endif
 }
