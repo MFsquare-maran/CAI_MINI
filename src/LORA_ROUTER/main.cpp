@@ -52,7 +52,7 @@ LORA Lora_router(
     LORA_MOSI,
     3,      // maxRetries
     500,    // retryDelay  [ms]
-    2000    // ackTimeout  [ms]
+    7000    // ackTimeout  [ms]
 );
 
 SDCard        sdcard;

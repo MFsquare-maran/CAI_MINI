@@ -26,13 +26,13 @@
   #define LORA_BW        125.0f
 #endif
 #ifndef LORA_SF
-  #define LORA_SF        9
+  #define LORA_SF        12
 #endif
 #ifndef LORA_CR
   #define LORA_CR        7
 #endif
 #ifndef LORA_TX_POWER
-  #define LORA_TX_POWER  14
+  #define LORA_TX_POWER  22
 #endif
 #ifndef SYNC_WORD
   #define SYNC_WORD      0xB6

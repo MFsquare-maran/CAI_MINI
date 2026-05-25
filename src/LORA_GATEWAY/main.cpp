@@ -22,6 +22,11 @@
 #include "FirmwareUpdater.h"
 #include "log.h"
 
+#ifdef LOG_TELNET
+  #include <TelnetStream.h>
+#endif
+
+
 // ============================================================
 //  Netzwerk & ThingsBoard Konfiguration
 // ============================================================
@@ -34,6 +39,8 @@ const uint16_t TB_PORT       = 1884;
 char accessToken[64] = {0};
 
 unsigned long last_gateway_send = 0;
+
+
 
 // ============================================================
 //  MQTT / ThingsBoard Objekte
@@ -60,7 +67,7 @@ LORA Lora_gateway(
     LORA_MOSI,
     3,      // maxRetries
     500,    // retryDelay  [ms]
-    2000    // ackTimeout  [ms]
+    7000    // ackTimeout  [ms]
 );
 
 // ============================================================
@@ -93,6 +100,22 @@ void InitWiFi()
     {
         logln("\n[WIFI] ✅ Verbunden!");
         logln("[WIFI] IP: " + WiFi.localIP().toString());
+
+        // ── NTP Zeitsynchronisation ──────────────────────────
+        configTime(3600, 3600, "ch.pool.ntp.org");
+        logln("[NTP] Synchronisiere Zeit...");
+
+        struct tm timeinfo;
+        unsigned long ntpStart = millis();
+        while (!getLocalTime(&timeinfo) && millis() - ntpStart < 5000)
+        {
+            delay(200);
+        }
+
+        if (getLocalTime(&timeinfo))
+            logln("[NTP] ✅ Zeit synchronisiert.");
+        else
+            logln("[NTP] ⚠️ Zeitsynchronisation fehlgeschlagen!");
     }
     else
     {
@@ -186,6 +209,7 @@ void sendToThingsBoard(const SensorPacket& p)
     }
     tb.sendAttributeData("rssi", round(rssi_to_send * 10.0) / 10.0);
     tb.sendAttributeData("snr",  round(Lora_gateway.getLastSNR() * 10.0) / 10.0);
+    
 
     logln("[TB] ✅ Daten gesendet.");
     tb.loop();
@@ -241,9 +265,20 @@ void gateway_send()
     logln("[GATEWAY] Sending data to ThingsBoard.");
     ensureWiFi();
 
+    // ── NTP Anker aktualisieren ──────────────────────────────
+    configTime(3600, 3600, "ch.pool.ntp.org");
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+        _ntp_time_anchor   = mktime(&timeinfo);
+        _ntp_millis_anchor = millis();
+        logln("[NTP] ✅ Zeit-Anker gesetzt.");
+    } else {
+        logln("[NTP] ⚠️ Zeitsynchronisation fehlgeschlagen!");
+    }
+
     digitalWrite(LED_BOARD, ON);
 
-    // FIX 3: Vorherige Verbindung sauber trennen
+    
     if (tb.connected())
     {
         tb.disconnect();

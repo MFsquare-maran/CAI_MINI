@@ -1,24 +1,28 @@
-//TODO
-
-/*
-// In setup(), nach InitWiFi():
-TelnetStream.begin();       // 2. Telnet starten
-
-// Überall wo du Serial.println(...) schreibst:
-#define LOG(x) { Serial.println(x); TelnetStream.println(x); }
-
-LOG("SENSORDATEN");
-
-*/
-
-#include <Arduino.h> 
-
 #pragma once
+#include <Arduino.h>
+
+extern unsigned long _ntp_millis_anchor;
+extern time_t        _ntp_time_anchor;
+
+void _telnetLog(const char* msg, bool newline);
 
 #ifdef LOG_TELNET
-  #include <TelnetStream.h>
-  #define logln(x) do { Serial.println(x); if(WiFi.status()==WL_CONNECTED) TelnetStream.println(x); } while(0)
-  #define logf(x)  do { Serial.print(x);   if(WiFi.status()==WL_CONNECTED) TelnetStream.print(x);   } while(0)
+  #include <WiFi.h>
+
+  #define logln(x) do { \
+    String _s = String(x); \
+    Serial.println(_s); \
+    if (WiFi.status() == WL_CONNECTED) \
+      _telnetLog(_s.c_str(), true); \
+  } while(0)
+
+  #define logf(x) do { \
+    String _s = String(x); \
+    Serial.print(_s); \
+    if (WiFi.status() == WL_CONNECTED) \
+      _telnetLog(_s.c_str(), false); \
+  } while(0)
+
 #else
   #define logln(x) do { Serial.println(x); } while(0)
   #define logf(x)  do { Serial.print(x);   } while(0)

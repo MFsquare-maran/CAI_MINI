@@ -44,6 +44,6 @@
 #define SHUTDOWN_PIN 8
 
 
-#define FW_VERSION "1.0.2_ROUTER" // Firmware-Version
+#define FW_VERSION "1.0.3_ROUTER" // Firmware-Version
 
 
