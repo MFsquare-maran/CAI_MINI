@@ -3,11 +3,14 @@
  *  CAI_MINI — LoRa Gateway
  * ============================================================
  *  Beschreibung : Empfängt LoRa Pakete von Sensoren und
- *                 Router und sendert sie per mqtt an TB weiter
+ *                 Router und sendet sie per MQTT an TB weiter
  *  Board        : Seeed XIAO ESP32-S3
  *  Framework    : Arduino
  *  Autor        : maran
  *  Erstellt     : 2026-04-01
+ *  Update       : Dual-Core via FreeRTOS Queue
+ *                 Core 0 → LoRa empfangen
+ *                 Core 1 → WiFi / MQTT / ThingsBoard
  * ============================================================
  */
 
@@ -21,6 +24,9 @@
 #include "credentials.h"
 #include "FirmwareUpdater.h"
 #include "log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
 
 #ifdef LOG_TELNET
   #include <TelnetStream.h>
@@ -36,23 +42,29 @@ const char* TB_SERVER        = "iot.mfsquare.ch";
 const char* TB_TOKEN_GATEWAY = GATEWAY_TOKEN;
 const uint16_t TB_PORT       = 1884;
 
-char accessToken[64] = {0};
+// ============================================================
+//  FreeRTOS Queue
+//  Core 0 schreibt SensorPacket rein, Core 1 liest es aus
+//  Queue-Tiefe 8: bis zu 8 Pakete können warten
+// ============================================================
+static QueueHandle_t s_packetQueue = nullptr;
 
-unsigned long last_gateway_send = 0;
-
-
+// Signal-Flag: Core 0 → Core 1 soll gateway_send() ausführen
+static volatile bool s_doGatewaySend = false;
 
 // ============================================================
 //  MQTT / ThingsBoard Objekte
+//  NUR von Core 1 verwendet → kein Mutex nötig
 // ============================================================
 constexpr uint32_t MAX_MESSAGE_SIZE = 1024U;
 
-WiFiClient            wifiClient;
-Arduino_MQTT_Client   mqttClient(wifiClient);
+WiFiClient               wifiClient;
+Arduino_MQTT_Client      mqttClient(wifiClient);
 ThingsBoardSized<32, 10> tb(mqttClient, MAX_MESSAGE_SIZE);
 
 // ============================================================
 //  SPI + LoRa Objekte
+//  NUR von Core 0 verwendet → kein Mutex nötig
 // ============================================================
 SPIClass spi_lora(FSPI);
 
@@ -101,7 +113,6 @@ void InitWiFi()
         logln("\n[WIFI] ✅ Verbunden!");
         logln("[WIFI] IP: " + WiFi.localIP().toString());
 
-        // ── NTP Zeitsynchronisation ──────────────────────────
         configTime(3600, 3600, "ch.pool.ntp.org");
         logln("[NTP] Synchronisiere Zeit...");
 
@@ -174,13 +185,14 @@ void ensureWiFi()
 
 // ============================================================
 //  Telemetrie an ThingsBoard senden
+//  Läuft auf Core 1
 // ============================================================
 void sendToThingsBoard(const SensorPacket& p)
 {
+    char accessToken[64] = {0};
     strlcpy(accessToken, p.token, sizeof(accessToken));
     ensureWiFi();
 
-    // FIX 3: Vorherige Verbindung sauber trennen
     if (tb.connected())
     {
         tb.disconnect();
@@ -195,11 +207,11 @@ void sendToThingsBoard(const SensorPacket& p)
     tb.sendTelemetryData("Gas_Resistance", round(p.gasResistance  * 100.0) / 100.0);
     tb.sendTelemetryData("Battery_Voltage",round(p.batteryVoltage * 100.0) / 100.0);
 
-    // ── RSSI: Gateway-RSSI anhängen falls noch leer ──────────
+    // ── RSSI: bereits beim Empfang in Core 0 kopiert ─────────
     float rssi_to_send;
     if (p.rssi == -1.0f)
     {
-        rssi_to_send = Lora_gateway.getLastRSSI();
+        rssi_to_send = p.gatewayRSSI; // vom Gateway gemessen, in Queue kopiert
         logln("[TB] RSSI vom Gateway: " + String(rssi_to_send, 1) + " dBm");
     }
     else
@@ -208,8 +220,7 @@ void sendToThingsBoard(const SensorPacket& p)
         logln("[TB] RSSI vom Router:  " + String(rssi_to_send, 1) + " dBm");
     }
     tb.sendAttributeData("rssi", round(rssi_to_send * 10.0) / 10.0);
-    tb.sendAttributeData("snr",  round(Lora_gateway.getLastSNR() * 10.0) / 10.0);
-    
+    tb.sendAttributeData("snr",  round(p.gatewaySNR * 10.0) / 10.0);
 
     logln("[TB] ✅ Daten gesendet.");
     tb.loop();
@@ -218,34 +229,7 @@ void sendToThingsBoard(const SensorPacket& p)
 }
 
 // ============================================================
-//  Paket auswerten + ausgeben
-// ============================================================
-void handlePacket()
-{
-    String sender  = Lora_gateway.readSender();
-    String payload = Lora_gateway.readData();
-
-    logln("[LORA] ── Neues Paket ─────────────────────────");
-    logln("        Sender          : " + sender);
-    logln("        Payload         : " + payload);
-
-    SensorPacket packed = parseSensorPacket(sender, payload);
-
-    logln("        Token           : " + String(packed.token));
-    logln("        Temperatur      : " + String(packed.temperature,    2) + " °C");
-    logln("        Luftdruck       : " + String(packed.pressure,       2) + " hPa");
-    logln("        Luftfeuchtigkeit: " + String(packed.humidity,       2) + " %");
-    logln("        Gaswiderstand   : " + String(packed.gasResistance,  2) + " kOhm");
-    logln("        Batterie        : " + String(packed.batteryVoltage, 2) + " V");
-    logln("        RSSI            : " + String(Lora_gateway.getLastRSSI(), 1) + " dBm");
-    logln("        SNR             : " + String(Lora_gateway.getLastSNR(),  1) + " dB");
-    logln("[LORA] ──────────────────────────────────────────");
-
-    sendToThingsBoard(packed);
-}
-
-// ============================================================
-//  Akku-Spannung lesen (Kalibrierungstabelle für HELTEC-Boards)
+//  Akku-Spannung lesen (Heltec)
 // ============================================================
 float readBattVoltage_heltec(uint8_t adc_pin)
 {
@@ -259,13 +243,13 @@ float readBattVoltage_heltec(uint8_t adc_pin)
 
 // ============================================================
 //  Gateway-Daten senden + OTA prüfen
+//  Läuft auf Core 1
 // ============================================================
 void gateway_send()
 {
     logln("[GATEWAY] Sending data to ThingsBoard.");
     ensureWiFi();
 
-    // ── NTP Anker aktualisieren ──────────────────────────────
     configTime(3600, 3600, "ch.pool.ntp.org");
     struct tm timeinfo;
     if (getLocalTime(&timeinfo)) {
@@ -278,7 +262,6 @@ void gateway_send()
 
     digitalWrite(LED_BOARD, ON);
 
-    
     if (tb.connected())
     {
         tb.disconnect();
@@ -318,10 +301,46 @@ void gateway_send()
 }
 
 // ============================================================
+//  Core 1 Task — WiFi / MQTT / ThingsBoard
+//
+//  Wartet blockierend auf Queue-Einträge von Core 0.
+//  Verarbeitet SensorPackets und gateway_send() Signal.
+//  Core 0 (LoRa) läuft komplett unabhängig weiter.
+// ============================================================
+void mqttTask(void* pvParameters)
+{
+    logln("[MQTT-TASK] Core 1 gestartet.");
+
+    SensorPacket p;
+
+    for (;;)
+    {
+        // ── gateway_send() Signal von Core 0 ─────────────────
+        if (s_doGatewaySend)
+        {
+            s_doGatewaySend = false;
+            gateway_send();
+        }
+
+        // ── Queue: Paket vorhanden? (50ms warten) ────────────
+        if (xQueueReceive(s_packetQueue, &p, pdMS_TO_TICKS(50)) == pdTRUE)
+        {
+            logln("[MQTT-TASK] Paket aus Queue – sende an ThingsBoard.");
+            digitalWrite(LED_BOARD, ON);
+            sendToThingsBoard(p);
+            digitalWrite(LED_BOARD, OFF);
+        }
+    }
+}
+
+// ============================================================
 //  setup()
 // ============================================================
 void setup()
 {
+    // ── Log-Mutex erstellen (vor allem anderen!) ────────────
+    _log_mutex = xSemaphoreCreateMutex();
+
     Serial.begin(115200);
     delay(3000);
 
@@ -331,7 +350,6 @@ void setup()
     logf("Firmware Version: ");
     logln(FW_VERSION);
 
-    // ── LEDs ────────────────────────────────────────────────
     pinMode(LED_BOARD, OUTPUT);
     digitalWrite(LED_BOARD, ON);
 
@@ -341,14 +359,13 @@ void setup()
     digitalWrite(ADC_CTRL_PIN, LOW);
 #endif
 
-    // ── FIX 1: WiFi ZUERST ──────────────────────────────────
+    // ── WiFi zuerst (TelnetStream braucht WiFi) ──────────────
     InitWiFi();
 
-    // ── FIX 1: TelnetStream erst NACH WiFi starten ──────────
 #ifdef LOG_TELNET
     TelnetStream.begin();
     logln("[TELNET] TelnetStream gestartet.");
-    logln("[TELNET] Warte auf Telnet-Verbindung... (5s) – Taste druecken nach Connect!");
+    logln("[TELNET] Warte auf Telnet-Verbindung... (5s)");
 
     unsigned long telnetWait = millis();
     while (TelnetStream.available() == 0 && millis() - telnetWait < 5000)
@@ -364,37 +381,89 @@ void setup()
         logln("[TELNET] Kein Client – fahre ohne Telnet fort.");
 #endif
 
-    // ── LoRa ────────────────────────────────────────────────
+    // ── LoRa ─────────────────────────────────────────────────
     if (!Lora_gateway.begin("GATEWAY01"))
     {
         logln("[LORA] KRITISCH: Initialisierung fehlgeschlagen!");
         while (1) { delay(1000); }
     }
 
-    gateway_send();
+    // ── FreeRTOS Queue erstellen ──────────────────────────────
+    // Tiefe 8: bis zu 8 SensorPackets können warten
+    s_packetQueue = xQueueCreate(8, sizeof(SensorPacket));
+    if (s_packetQueue == nullptr)
+    {
+        logln("[QUEUE] KRITISCH: Queue konnte nicht erstellt werden!");
+        while (1) { delay(1000); }
+    }
+    logln("[QUEUE] ✅ Queue erstellt (Tiefe 8).");
+
+    // ── Core 1 Task starten ───────────────────────────────────
+    // Stack 8192: WiFi + MQTT + ThingsBoard brauchen viel Stack
+    xTaskCreatePinnedToCore(
+        mqttTask,       // Task-Funktion
+        "mqttTask",     // Name (Debug)
+        8192,           // Stack in Bytes
+        nullptr,        // Parameter
+        1,              // Priorität (1 = niedrig, genug für MQTT)
+        nullptr,        // Task-Handle (nicht benötigt)
+        1               // Core 1
+    );
+    logln("[TASK] ✅ mqttTask auf Core 1 gestartet.");
+
+    // ── Erstes gateway_send() via Signal ─────────────────────
+    s_doGatewaySend = true;
 
     logln("[SETUP] ✅ Bereit – warte auf LoRa Pakete...");
 }
 
 // ============================================================
-//  loop()
+//  loop() — läuft auf Core 0
+//  Nur LoRa empfangen + Paket in Queue legen
+//  Kein WiFi, kein MQTT, kein blocking hier
 // ============================================================
 void loop()
 {
     unsigned long now = millis();
 
+    // ── Paket empfangen → Queue ───────────────────────────────
     if (Lora_gateway.packetReceived())
     {
-        digitalWrite(LED_BOARD, ON);
-        handlePacket();
-        digitalWrite(LED_BOARD, OFF);
+        String sender  = Lora_gateway.readSender();
+        String payload = Lora_gateway.readData();
+
+        logln("[LORA] ── Neues Paket ─────────────────────────");
+        logln("        Sender  : " + sender);
+        logln("        Payload : " + payload);
+
+        SensorPacket packed = parseSensorPacket(sender, payload);
+
+        // ── RSSI/SNR jetzt kopieren solange wir auf Core 0 sind
+        // Core 1 darf Lora_gateway nicht anfassen!
+        packed.gatewayRSSI = Lora_gateway.getLastRSSI();
+        packed.gatewaySNR  = Lora_gateway.getLastSNR();
+
+        logln("        RSSI    : " + String(packed.gatewayRSSI, 1) + " dBm");
+        logln("        SNR     : " + String(packed.gatewaySNR,  1) + " dB");
+        logln("[LORA] ──────────────────────────────────────────");
+
+        // ── In Queue legen (0ms warten: wenn voll → droppen) ─
+        if (xQueueSend(s_packetQueue, &packed, 0) != pdTRUE)
+        {
+            logln("[QUEUE] ⚠️ Queue voll – Paket verworfen!");
+        }
+        else
+        {
+            logln("[QUEUE] ✅ Paket in Queue.");
+        }
     }
 
+    // ── gateway_send() Intervall → Signal an Core 1 ──────────
+    static unsigned long last_gateway_send = 0;
     if (now - last_gateway_send > gateway_send_interval * 60UL * 1000UL)
     {
-        logln("[GATEWAY] Send interval reached.");
-        logln("[GATEWAY] Sending data to ThingsBoard.");
-        gateway_send();
+        logln("[GATEWAY] Send interval reached – Signal an Core 1.");
+        s_doGatewaySend   = true;
         last_gateway_send = now;
     }
 

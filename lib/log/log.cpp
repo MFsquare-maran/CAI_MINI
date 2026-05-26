@@ -4,10 +4,12 @@
   #include <TelnetStream.h>
 #endif
 
-unsigned long _ntp_millis_anchor = 0;
-time_t        _ntp_time_anchor   = 0;
+unsigned long    _ntp_millis_anchor = 0;
+time_t           _ntp_time_anchor   = 0;
+SemaphoreHandle_t _log_mutex        = nullptr;
 
-void _telnetLog(const char* msg, bool newline) {
+void _telnetLog(const char* msg, bool newline)
+{
 #ifdef LOG_TELNET
     char ts[23];
     memset(ts, 0, sizeof(ts));
@@ -22,7 +24,7 @@ void _telnetLog(const char* msg, bool newline) {
         memcpy(ts, "[--:--:--:--:--] \0\0\0\0\0", 23);
     }
 
-    // Wenn write() 0 zurückgibt ist kein Client verbunden
+    // Mutex ist bereits gehalten vom Aufrufer (logln/logf)
     if (TelnetStream.write((const uint8_t*)ts, strlen(ts)) == 0) return;
 
     if (newline)
@@ -31,4 +33,3 @@ void _telnetLog(const char* msg, bool newline) {
         TelnetStream.print(msg);
 #endif
 }
-

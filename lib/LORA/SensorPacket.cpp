@@ -6,7 +6,9 @@ SensorPacket::SensorPacket()
       humidity(0.0f),
       gasResistance(0.0f),
       batteryVoltage(0.0f),
-      rssi(-1.0f),       // ← -1.0f = kein Wert
+      rssi(-1.0f),        // -1.0f = kein Wert vom Router
+      gatewayRSSI(0.0f),  // wird von Core 0 vor Queue-Push gesetzt
+      gatewaySNR(0.0f),   // wird von Core 0 vor Queue-Push gesetzt
       valid(false)
 {
     memset(sender, 0, sizeof(sender));
@@ -41,7 +43,7 @@ SensorPacket parseSensorPacket(const String& sender, const String& payload)
     String humStr  = extractValue(payload, "Humidity");
     String gasStr  = extractValue(payload, "Gas_Resistance");
     String batStr  = extractValue(payload, "Battery_Voltage");
-    String rssiStr = extractValue(payload, "RSSI");  // ← neu
+    String rssiStr = extractValue(payload, "RSSI");
 
     if (tempStr.isEmpty()) return p;
 
@@ -51,7 +53,7 @@ SensorPacket parseSensorPacket(const String& sender, const String& payload)
     p.gasResistance  = gasStr.toFloat();
     p.batteryVoltage = batStr.toFloat();
 
-    // RSSI nur setzen wenn vorhanden
+    // RSSI nur setzen wenn vom Router befüllt
     if (!rssiStr.isEmpty())
         p.rssi = rssiStr.toFloat();
 

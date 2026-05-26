@@ -226,7 +226,7 @@ bool LORA::sendRaw(const String& packet)
     s_packetFlag = false;
 
     // ── FIX: nicht-const Kopie fuer RadioLib transmit() ──────
-    String packetCopy = packet;  // ← das war vorher gefehlt / entfernt
+    String packetCopy = packet;  
     int state = m_radio->transmit(packetCopy);  // ← packetCopy statt packet
 
     // ISR nach TX wieder aktivieren
@@ -307,7 +307,7 @@ void LORA::sendAck(const String& empfaenger)
 {
     String ackPacket = buildPacket(empfaenger, LORA_TYPE_ACK, LORA_ACK_PAYLOAD);
     logln("[LORA] Sende ACK an: " + empfaenger);
-    delay(20); // kurze Pause — Sender muss in RX sein
+    delay(100); 
     sendRaw(ackPacket);
 }
 
