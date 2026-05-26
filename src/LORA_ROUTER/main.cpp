@@ -185,8 +185,12 @@ void setup()
     // ── CPU direkt auf Maximum für Init ──────────────────────
     setCpuFrequencyMhz(240);
 
+    
+
     Serial.begin(115200);
     delay(3000);
+
+    _log_mutex = xSemaphoreCreateMutex();
 
     logln("╔══════════════════════════════╗");
     logln("║   CAI_MINI LoRa Router       ║");

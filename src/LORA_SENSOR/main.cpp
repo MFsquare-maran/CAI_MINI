@@ -197,6 +197,8 @@ void setup()
     Serial.begin(115200);
     delay(3000);
 
+    _log_mutex = xSemaphoreCreateMutex();
+
     logln("╔══════════════════════════════╗");
     logln("║   CAI_MINI LoRa Sensor       ║");
     logln("╚══════════════════════════════╝");
