@@ -64,10 +64,6 @@ LORA Lora_sensor(
 unsigned long last_send = 0;
 unsigned long sending_period = 1;// Standard: 1Min. 
 
-
-
-
-
 // ============================================================
 //  ThingsBoard
 // ============================================================

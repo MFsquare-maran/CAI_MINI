@@ -16,6 +16,15 @@
 #include <RadioLib.h>
 #include "esp_sleep.h"
 #include "log.h"
+
+#include "aes_key.h" 
+
+#ifdef LORA_ENCRYPTION_ENABLED
+#include <AES.h>
+#include <CBC.h>
+#include <Base64.h>
+
+#endif
 // ============================================================
 //  Konstanten
 // ============================================================
@@ -106,6 +115,14 @@ private:
     bool    parsePacket(const String& raw);
     String  tryReceive();
     String  splitGet(const String& str, int index) const;
+
+
+    #ifdef LORA_ENCRYPTION_ENABLED
+
+    String  encrypt(const String& plaintext)  const;
+    String  decrypt(const String& ciphertext) const;
+
+    #endif
 
     // ── Member-Variablen ──────────────────────────────────────
     String      m_ownName;

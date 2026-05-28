@@ -339,10 +339,12 @@ void mqttTask(void* pvParameters)
 void setup()
 {
     // ── Log-Mutex erstellen (vor allem anderen!) ────────────
-    _log_mutex = xSemaphoreCreateMutex();
+    
 
     Serial.begin(115200);
     delay(3000);
+
+    _log_mutex = xSemaphoreCreateMutex();
 
     logln("╔══════════════════════════════╗");
     logln("║    LoRa Gateway              ║");

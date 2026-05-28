@@ -27,7 +27,7 @@
 #define SD_MISO 12
 #define SD_MOSI 11
 #define SD_CS 44
-#define SD_DETECT 7
+
 
 
 
@@ -40,8 +40,6 @@
 #define LORA_MOSI    9
 #define LORA_NSS     41
 
-
-#define SHUTDOWN_PIN 8
 
 
 #define FW_VERSION "1.0.3_ROUTER" // Firmware-Version

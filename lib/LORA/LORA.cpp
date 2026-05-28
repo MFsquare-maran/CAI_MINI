@@ -203,45 +203,53 @@ void LORA::sleepRadio()
 
 
 // ============================================================
-//  buildPacket
-// ============================================================
-String LORA::buildPacket(const String& empfaenger,
-                          const String& typ,
-                          const String& daten) const
-{
-    return empfaenger + LORA_PACKET_SEPARATOR +
-           m_ownName  + LORA_PACKET_SEPARATOR +
-           typ        + LORA_PACKET_SEPARATOR +
-           daten;
-}
-
-// ============================================================
 //  sendRaw — ISR waehrend TX deaktivieren, danach neu setzen
 // ============================================================
 bool LORA::sendRaw(const String& packet)
 {
-    // ISR deaktivieren damit TX-Done nicht faelschlicherweise
-    // als RX-Paket interpretiert wird
-    m_radio->clearDio1Action();
-    s_packetFlag = false;
+    // ── CSMA: Kanal prüfen vor dem Senden ────────────────────
+    const int MAX_ROUNDS = 3;
 
-    // ── FIX: nicht-const Kopie fuer RadioLib transmit() ──────
-    String packetCopy = packet;  
-    int state = m_radio->transmit(packetCopy);  // ← packetCopy statt packet
-
-    // ISR nach TX wieder aktivieren
-    m_radio->setDio1Action(onDio1Interrupt);
-    s_packetFlag = false;
-
-    // Sofort wieder in Empfangsmodus
-    m_radio->startReceive();
-
-    if (state == RADIOLIB_ERR_NONE)
+    for (int round = 0; round < MAX_ROUNDS; round++)
     {
-        return true;
+        m_radio->clearDio1Action();
+        s_packetFlag = false;
+
+        int state = m_radio->scanChannel();
+
+        m_radio->setDio1Action(onDio1Interrupt);
+        s_packetFlag = false;
+        m_radio->startReceive();
+
+        if (state == RADIOLIB_LORA_DETECTED)
+        {
+            logln("[LORA] CSMA: Kanal besetzt (Runde " + String(round + 1) + ") – warte 3s");
+            uint16_t ca = random(2000,3000);
+            delay(ca);
+            continue;
+        }
+
+        // Kanal frei → senden
+        logln("[LORA] CSMA: Kanal frei (Runde " + String(round + 1) + ") – sende");
+
+        m_radio->clearDio1Action();
+        s_packetFlag = false;
+
+        String packetCopy = packet;
+        int txState = m_radio->transmit(packetCopy);
+
+        m_radio->setDio1Action(onDio1Interrupt);
+        s_packetFlag = false;
+        m_radio->startReceive();
+
+        if (txState == RADIOLIB_ERR_NONE) return true;
+
+        logln("[LORA] sendRaw Fehler: " + String(txState));
+        return false;
     }
 
-    logln("[LORA] sendRaw Fehler: " + String(state));
+    // Nach 3× besetzt → abbrechen, nicht senden
+    logln("[LORA] CSMA: Kanal 3× besetzt – Abbruch.");
     return false;
 }
 
@@ -359,32 +367,7 @@ bool LORA::isForMe(const String& packet) const
     return (packet.substring(0, firstSep) == m_ownName);
 }
 
-bool LORA::parsePacket(const String& raw)
-{
-    if (!isForMe(raw)) return false;
 
-    String sender  = splitGet(raw, 1);
-    String typ     = splitGet(raw, 2);
-    String payload = splitGet(raw, 3);
-
-    if (sender.length() == 0 || typ.length() == 0)
-    {
-        logln("[LORA] Paket ungueltig (fehlende Felder)");
-        return false;
-    }
-
-    if (typ == LORA_TYPE_ACK) return false;
-
-    m_lastRawPacket = raw;
-    m_lastSender    = sender;
-    m_lastData      = payload;
-
-    logln("[LORA] Paket gueltig!");
-    logln("       Von:   " + m_lastSender);
-    logln("       Daten: " + m_lastData);
-
-    return true;
-}
 
 String LORA::splitGet(const String& str, int index) const
 {
@@ -403,3 +386,161 @@ String LORA::splitGet(const String& str, int index) const
     }
     return "";
 }
+
+
+
+
+
+// ============================================================
+//  buildPacket
+// ============================================================
+String LORA::buildPacket(const String& empfaenger,
+                          const String& typ,
+                          const String& daten) const
+{
+    String payload = daten;
+
+#ifdef LORA_ENCRYPTION_ENABLED
+    if (typ == LORA_TYPE_DATA)
+    {
+        payload = encrypt(daten);
+        if (payload.length() == 0)
+        {
+            logln("[LORA] Verschlüsselung fehlgeschlagen");
+            return "";
+        }
+    }
+#endif
+
+    return empfaenger + LORA_PACKET_SEPARATOR +
+           m_ownName  + LORA_PACKET_SEPARATOR +
+           typ        + LORA_PACKET_SEPARATOR +
+           payload;
+}
+
+// ============================================================
+//  parsePacket
+// ============================================================
+bool LORA::parsePacket(const String& raw)
+{
+    if (!isForMe(raw)) return false;
+
+    String sender  = splitGet(raw, 1);
+    String typ     = splitGet(raw, 2);
+    String payload = splitGet(raw, 3);
+
+    if (sender.length() == 0 || typ.length() == 0)
+    {
+        logln("[LORA] Paket ungueltig (fehlende Felder)");
+        return false;
+    }
+
+    if (typ == LORA_TYPE_ACK) return false;
+
+#ifdef LORA_ENCRYPTION_ENABLED
+    String decrypted = decrypt(payload);
+    if (decrypted.length() == 0)
+    {
+        logln("[LORA] Entschlüsselung fehlgeschlagen – verworfen");
+        return false;
+    }
+    if (!decrypted.startsWith("Token:"))
+    {
+        logln("[LORA] Paket verworfen – ungueltiges Format");
+        return false;
+    }
+    payload = decrypted;
+#endif
+
+    m_lastRawPacket = raw;
+    m_lastSender    = sender;
+    m_lastData      = payload;
+
+    logln("[LORA] Paket gueltig!");
+    logln("       Von:   " + m_lastSender);
+    logln("       Daten: " + m_lastData);
+
+    return true;
+}
+
+#ifdef LORA_ENCRYPTION_ENABLED
+
+// ============================================================
+//  encrypt — Daten AES-128 CBC verschlüsseln + Base64
+// ============================================================
+String LORA::encrypt(const String& plaintext) const
+{
+    uint8_t iv[AES_KEY_LENGTH];
+    for (int i = 0; i < AES_KEY_LENGTH; i++)
+        iv[i] = (uint8_t)random(0, 256);
+
+    int plaintextLen = plaintext.length();
+    int paddedLen    = ((plaintextLen / AES_KEY_LENGTH) + 1) * AES_KEY_LENGTH;
+    uint8_t padByte  = paddedLen - plaintextLen;
+
+    uint8_t padded[paddedLen];
+    memcpy(padded, plaintext.c_str(), plaintextLen);
+    memset(padded + plaintextLen, padByte, padByte);
+
+    CBC<AES128> aes;
+    aes.setKey(AES_KEY, AES_KEY_LENGTH);
+    aes.setIV(iv, AES_KEY_LENGTH);
+
+    uint8_t encrypted[paddedLen];
+    aes.encrypt(encrypted, padded, paddedLen);
+
+    int combinedLen = AES_KEY_LENGTH + paddedLen;
+    uint8_t combined[combinedLen];
+    memcpy(combined,                  iv,        AES_KEY_LENGTH);
+    memcpy(combined + AES_KEY_LENGTH, encrypted, paddedLen);
+
+    int b64Len = Base64.encodedLength(combinedLen);
+    char b64[b64Len + 1];
+    Base64.encode(b64, (char*)combined, combinedLen);
+    b64[b64Len] = '\0';
+
+    return String(b64);
+}
+
+// ============================================================
+//  decrypt — Base64 + AES-128 CBC entschlüsseln
+// ============================================================
+String LORA::decrypt(const String& ciphertext) const
+{
+    int decodedLen = Base64.decodedLength((char*)ciphertext.c_str(), ciphertext.length());
+    uint8_t decoded[decodedLen];
+    Base64.decode((char*)decoded, (char*)ciphertext.c_str(), ciphertext.length());
+
+    if (decodedLen <= AES_KEY_LENGTH)
+    {
+        logln("[LORA] Entschlüsselung: Paket zu kurz");
+        return "";
+    }
+
+    uint8_t iv[AES_KEY_LENGTH];
+    memcpy(iv, decoded, AES_KEY_LENGTH);
+
+    int encLen = decodedLen - AES_KEY_LENGTH;
+    uint8_t decrypted[encLen];
+
+    CBC<AES128> aes;
+    aes.setKey(AES_KEY, AES_KEY_LENGTH);
+    aes.setIV(iv, AES_KEY_LENGTH);
+    aes.decrypt(decrypted, decoded + AES_KEY_LENGTH, encLen);
+
+    uint8_t padByte = decrypted[encLen - 1];
+    if (padByte == 0 || padByte > AES_KEY_LENGTH)
+    {
+        logln("[LORA] Entschlüsselung: Ungültiges Padding");
+        return "";
+    }
+
+    int plaintextLen = encLen - padByte;
+    String result = "";
+    for (int i = 0; i < plaintextLen; i++)
+        result += (char)decrypted[i];
+
+    return result;
+}
+
+#endif

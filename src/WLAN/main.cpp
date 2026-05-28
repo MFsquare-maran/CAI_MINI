@@ -113,6 +113,8 @@ void setup() {
     Serial.begin(SERIAL_DEBUG_BAUD);
     delay(5000);
 
+    _log_mutex = xSemaphoreCreateMutex();
+
     logln("╔══════════════════════════════╗");
     logln("║   CAI_MINI WLAN              ║");
     logln("╚══════════════════════════════╝");
