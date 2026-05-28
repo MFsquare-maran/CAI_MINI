@@ -4,4 +4,5 @@
 .vscode/launch.json
 .vscode/ipch
 include/credentials.h
+include/aes_key.h
 .idea
