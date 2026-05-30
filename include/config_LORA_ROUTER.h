@@ -42,6 +42,6 @@
 
 
 
-#define FW_VERSION "1.0.3_ROUTER" // Firmware-Version
+#define FW_VERSION "1.0.5_ROUTER" // Firmware-Version
 
 

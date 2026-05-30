@@ -68,7 +68,13 @@ bool LORA::begin(const String& ownName)
 {
     m_ownName = ownName;
 
-    gpio_install_isr_service(0);
+    // ── ISR Service nur einmal installieren ──────────────────
+    static bool isr_service_installed = false;
+    if (!isr_service_installed)
+    {
+        gpio_install_isr_service(0);
+        isr_service_installed = true;
+    }
 
     logln("[LORA] Initialisiere SX1262...");
     logln("[LORA] Konfiguration:");
@@ -120,12 +126,14 @@ bool LORA::begin(const String& ownName)
 // ============================================================
 bool LORA::transmit(const String& empfaenger, const String& daten)
 {
+    
     String packet = buildPacket(empfaenger, LORA_TYPE_DATA, daten);
 
     for (int versuch = 1; versuch <= m_maxRetries; versuch++)
     {
         logln("[LORA] Sende (Versuch " + String(versuch) +
-                       "/" + String(m_maxRetries) + "): " + packet);
+               "/" + String(m_maxRetries) + "): " + 
+               empfaenger + "|" + m_ownName + "|DATA|" + daten);
 
         if (!sendRaw(packet))
         {
@@ -222,9 +230,10 @@ bool LORA::sendRaw(const String& packet)
         m_radio->startReceive();
 
         if (state == RADIOLIB_LORA_DETECTED)
-        {
-            logln("[LORA] CSMA: Kanal besetzt (Runde " + String(round + 1) + ") – warte 3s");
-            uint16_t ca = random(2000,3000);
+        {   uint16_t ca = random(2000,3000);
+
+            logln("[LORA] CSMA: Kanal besetzt (Runde " + String(round + 1) + ") – warte " + String(ca) + "ms");
+            
             delay(ca);
             continue;
         }
@@ -466,34 +475,31 @@ bool LORA::parsePacket(const String& raw)
 #ifdef LORA_ENCRYPTION_ENABLED
 
 // ============================================================
-//  encrypt — Daten AES-128 CBC verschlüsseln + Base64
+//  encrypt — ChaCha20 + Base64
 // ============================================================
 String LORA::encrypt(const String& plaintext) const
 {
-    uint8_t iv[AES_KEY_LENGTH];
-    for (int i = 0; i < AES_KEY_LENGTH; i++)
+    int len = plaintext.length();
+
+    // ── IV zufällig generieren (8 Bytes) ─────────────────────
+    uint8_t iv[CHACHA_IV_LENGTH];
+    for (int i = 0; i < CHACHA_IV_LENGTH; i++)
         iv[i] = (uint8_t)random(0, 256);
 
-    int plaintextLen = plaintext.length();
-    int paddedLen    = ((plaintextLen / AES_KEY_LENGTH) + 1) * AES_KEY_LENGTH;
-    uint8_t padByte  = paddedLen - plaintextLen;
+    // ── ChaCha20 verschlüsseln ────────────────────────────────
+    uint8_t ciphertext[len];
+    ChaCha chacha;
+    chacha.setKey(CHACHA_KEY, CHACHA_KEY_LENGTH);
+    chacha.setIV(iv, CHACHA_IV_LENGTH);
+    chacha.encrypt(ciphertext, (const uint8_t*)plaintext.c_str(), len);
 
-    uint8_t padded[paddedLen];
-    memcpy(padded, plaintext.c_str(), plaintextLen);
-    memset(padded + plaintextLen, padByte, padByte);
-
-    CBC<AES128> aes;
-    aes.setKey(AES_KEY, AES_KEY_LENGTH);
-    aes.setIV(iv, AES_KEY_LENGTH);
-
-    uint8_t encrypted[paddedLen];
-    aes.encrypt(encrypted, padded, paddedLen);
-
-    int combinedLen = AES_KEY_LENGTH + paddedLen;
+    // ── IV + Ciphertext zusammenführen ────────────────────────
+    int combinedLen = CHACHA_IV_LENGTH + len;
     uint8_t combined[combinedLen];
-    memcpy(combined,                  iv,        AES_KEY_LENGTH);
-    memcpy(combined + AES_KEY_LENGTH, encrypted, paddedLen);
+    memcpy(combined,                   iv,         CHACHA_IV_LENGTH);
+    memcpy(combined + CHACHA_IV_LENGTH, ciphertext, len);
 
+    // ── Base64 kodieren ───────────────────────────────────────
     int b64Len = Base64.encodedLength(combinedLen);
     char b64[b64Len + 1];
     Base64.encode(b64, (char*)combined, combinedLen);
@@ -503,42 +509,37 @@ String LORA::encrypt(const String& plaintext) const
 }
 
 // ============================================================
-//  decrypt — Base64 + AES-128 CBC entschlüsseln
+//  decrypt — Base64 + ChaCha20
 // ============================================================
 String LORA::decrypt(const String& ciphertext) const
 {
+    // ── Base64 dekodieren ─────────────────────────────────────
     int decodedLen = Base64.decodedLength((char*)ciphertext.c_str(), ciphertext.length());
     uint8_t decoded[decodedLen];
     Base64.decode((char*)decoded, (char*)ciphertext.c_str(), ciphertext.length());
 
-    if (decodedLen <= AES_KEY_LENGTH)
+    if (decodedLen <= CHACHA_IV_LENGTH)
     {
         logln("[LORA] Entschlüsselung: Paket zu kurz");
         return "";
     }
 
-    uint8_t iv[AES_KEY_LENGTH];
-    memcpy(iv, decoded, AES_KEY_LENGTH);
+    // ── IV extrahieren ────────────────────────────────────────
+    uint8_t iv[CHACHA_IV_LENGTH];
+    memcpy(iv, decoded, CHACHA_IV_LENGTH);
 
-    int encLen = decodedLen - AES_KEY_LENGTH;
-    uint8_t decrypted[encLen];
+    // ── ChaCha20 entschlüsseln ────────────────────────────────
+    int dataLen = decodedLen - CHACHA_IV_LENGTH;
+    uint8_t plaintext[dataLen];
 
-    CBC<AES128> aes;
-    aes.setKey(AES_KEY, AES_KEY_LENGTH);
-    aes.setIV(iv, AES_KEY_LENGTH);
-    aes.decrypt(decrypted, decoded + AES_KEY_LENGTH, encLen);
+    ChaCha chacha;
+    chacha.setKey(CHACHA_KEY, CHACHA_KEY_LENGTH);
+    chacha.setIV(iv, CHACHA_IV_LENGTH);
+    chacha.decrypt(plaintext, decoded + CHACHA_IV_LENGTH, dataLen);
 
-    uint8_t padByte = decrypted[encLen - 1];
-    if (padByte == 0 || padByte > AES_KEY_LENGTH)
-    {
-        logln("[LORA] Entschlüsselung: Ungültiges Padding");
-        return "";
-    }
-
-    int plaintextLen = encLen - padByte;
     String result = "";
-    for (int i = 0; i < plaintextLen; i++)
-        result += (char)decrypted[i];
+    for (int i = 0; i < dataLen; i++)
+        result += (char)plaintext[i];
 
     return result;
 }

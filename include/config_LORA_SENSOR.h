@@ -41,6 +41,6 @@
 
 
 
-#define FW_VERSION "1.0.5_SENSOR" // Firmware-Version
+#define FW_VERSION "1.0.7_SENSOR" // Firmware-Version
 
 

@@ -20,10 +20,9 @@
 #include "aes_key.h" 
 
 #ifdef LORA_ENCRYPTION_ENABLED
-#include <AES.h>
-#include <CBC.h>
-#include <Base64.h>
-
+  #include <ChaCha.h>
+  #include <Base64.h>
+  #include "aes_key.h"
 #endif
 // ============================================================
 //  Konstanten

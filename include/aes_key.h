@@ -6,12 +6,17 @@
 #define AES_KEY_H
 
 
-//#define LORA_ENCRYPTION_ENABLED
+#define LORA_ENCRYPTION_ENABLED
 
-#define AES_KEY_LENGTH 16
 
-//Eigenen Key einfügen
-static const uint8_t AES_KEY[AES_KEY_LENGTH] = {
+// ── aes_key.h ─────────────────────────────────────────────────
+// Schlüssel muss 32 Bytes sein für ChaCha20-256
+#define CHACHA_KEY_LENGTH 32
+#define CHACHA_IV_LENGTH   8
+
+static const uint8_t CHACHA_KEY[CHACHA_KEY_LENGTH] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
