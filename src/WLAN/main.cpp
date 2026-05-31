@@ -91,6 +91,7 @@ void system_shutdown() {
     digitalWrite(SHUTDOWN_PIN, LOW);
     delay(50);
     digitalWrite(SHUTDOWN_PIN, HIGH);
+    delay(100);
 }
 
 // ============================================================
@@ -247,11 +248,13 @@ void setup() {
     // ============================================================
     delay(300);
     system_shutdown();
+    digitalWrite(LED_BLUE, HIGH);
 }
 
 // ============================================================
 // Loop
 // ============================================================
 void loop() {
-    // leer
+    delay(500);
+    system_shutdown();
 }
