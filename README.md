@@ -7,6 +7,7 @@
 
 ## Inhaltsverzeichnis
 
+- [CAI-Mini PCB](#cai-mini-pcb)
 - [Übersicht](#übersicht)
 - [Hardware](#hardware)
 - [Projektstruktur](#projektstruktur)
@@ -25,6 +26,12 @@
 - [Build & Flash](#build--flash)
 - [Montage / Halterung](#montage--halterung)
 - [Autor](#autor)
+
+---
+
+## CAI-Mini PCB
+
+![CAI-Mini V1.0 FMA](docs/CAI-Mini_Image.jpeg)
 
 ---
 
@@ -515,11 +522,13 @@ Die Geräte werden über eine standardisierte Halterung montiert. Die Montagesch
 
 Die Zeichnung zeigt den Befestigungsflantsch mit den Hauptmassen: 50 mm Gesamtbreite (2× 25 mm), 45 mm Gesamthöhe (25 mm + 20 mm ab Mittelpunkt). In den Befestigungslöcher sind jeweils M3 Gewinde eingelassen.
 
+
 ---
 
 ## Autor
 
-**maran**  
+**Maran Friedli**  
 Erstellt: 2026-04-01  
 Plattform: [PlatformIO](https://platformio.org/) + [Arduino Framework](https://www.arduino.cc/)  
 Board: [Seeed XIAO ESP32-S3](https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/)
+
