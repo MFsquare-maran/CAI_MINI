@@ -31,7 +31,7 @@
 
 ## CAI-Mini PCB
 
-![CAI-Mini V1.0 FMA](docs/CAI-Mini_Image.jpeg)
+![CAI-Mini V1.0 FMA](docs/CAI-Mini_Image.jpg)
 
 ---
 
