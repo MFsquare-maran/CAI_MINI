@@ -156,31 +156,33 @@ bool SDCard::readIni(const char *path) {
     // ---------- HOMEASSISTANT ----------
     cfg.ha_enabled = false;
 
-    if (ini.getValue("homeassistant", "HA_BROKER", buffer, sizeof(buffer))) {
+    if (ini.getValue("HOMEASSISTANT", "HA_BROKER", buffer, sizeof(buffer))) {
         strlcpy(cfg.ha_broker, buffer, sizeof(cfg.ha_broker));
         cfg.ha_enabled = true;
         logf("  HA Broker:           "); logln(cfg.ha_broker);
     }
 
-    if (ini.getValue("homeassistant", "HA_PORT", buffer, sizeof(buffer))) {
+    if (ini.getValue("HOMEASSISTANT", "HA_PORT", buffer, sizeof(buffer))) {
         cfg.ha_port = atoi(buffer);
         logf("  HA Port:             "); logln(cfg.ha_port);
     }
 
-    if (ini.getValue("homeassistant", "HA_DEVICE_ID", buffer, sizeof(buffer))) {
+    if (ini.getValue("HOMEASSISTANT", "HA_DEVICE_ID", buffer, sizeof(buffer))) {
         strlcpy(cfg.ha_device_id, buffer, sizeof(cfg.ha_device_id));
         logf("  HA Device ID:        "); logln(cfg.ha_device_id);
     }
 
-    if (ini.getValue("homeassistant", "HA_USER", buffer, sizeof(buffer))) {
+    if (ini.getValue("HOMEASSISTANT", "HA_USER", buffer, sizeof(buffer))) {
         strlcpy(cfg.ha_user, buffer, sizeof(cfg.ha_user));
         logf("  HA User:             "); logln(cfg.ha_user);
     }
 
-    if (ini.getValue("homeassistant", "HA_PASS", buffer, sizeof(buffer))) {
+    if (ini.getValue("HOMEASSISTANT", "HA_PASS", buffer, sizeof(buffer))) {
         strlcpy(cfg.ha_pass, buffer, sizeof(cfg.ha_pass));
         logf("  HA Pass:             "); logln(cfg.ha_pass);
     }
+
+
 
 ini.close();
 return true;

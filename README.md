@@ -145,12 +145,12 @@ PRESSURE_OFFSET    = 0.0
 HUMINITY_OFFSET    = 0.0
 GAS_OFFSET         = 0.0
 
-[homeassistant]
-ha_broker    = 192.168.1.100
-ha_port      = 1883
-ha_device_id = CAI-Mini-01
-ha_user      = meinuser
-ha_pass      = meinpasswort
+[HOMEASSISTANT]
+HA_BROKER    = 192.168.2.11
+HA_PORT      = 1883
+HA_DEVICE_ID = CAI-Mini-00
+HA_USER      = meinuser	
+HA_PASS      = meinpass
 ```
 
 > Die `[homeassistant]`-Section ist **optional** — fehlt sie, wird HA übersprungen.

@@ -23,13 +23,15 @@
 #include "sdcard.h"
 #include "battery.h"
 
-#include "log.h"
+
+#include "esp_task_wdt.h"
 
 // ============================================================
 // Konstanten
 // ============================================================
 constexpr uint32_t MAX_MESSAGE_SIZE  = 1024U;
 constexpr uint32_t SERIAL_DEBUG_BAUD = 115200U;
+constexpr uint32_t WDT_TIMEOUT_S     = 180U;   // Watchdog: Reset nach 3 min
 
 // ============================================================
 // Netzwerk
@@ -85,13 +87,14 @@ IniFile ini("/INIT.ini", FILE_READ, true);
 // Shutdown Funktion (wieder integriert)
 // ============================================================
 void system_shutdown() {
-    logln("System shutdown.");
-    Serial.flush();
+    Serial.println("System shutdown.");
+    
     delay(1000);
+    pinMode(SHUTDOWN_PIN, OUTPUT);
+    delay(200);
     digitalWrite(SHUTDOWN_PIN, LOW);
     delay(50);
     digitalWrite(SHUTDOWN_PIN, HIGH);
-    delay(100);
 }
 
 // ============================================================
@@ -116,6 +119,10 @@ void InitTB() {
 void setup() {
     Serial.begin(SERIAL_DEBUG_BAUD);
     delay(5000);
+
+    // --- Watchdog: Reset nach WDT_TIMEOUT_S falls Ablauf hängt ---
+    esp_task_wdt_init(WDT_TIMEOUT_S, true);
+    esp_task_wdt_add(NULL);
 
     _log_mutex = xSemaphoreCreateMutex();
 
@@ -153,7 +160,13 @@ void setup() {
     if (InitWiFi(sdcard.cfg.ssid, sdcard.cfg.password) == false) {
         logln("WiFi failed -> shutdown");
         delay(300);
-        system_shutdown();
+        while(true) {
+            system_shutdown();
+            digitalWrite(LED_BLUE, HIGH);
+            delay(3);
+            digitalWrite(LED_BLUE, LOW);
+            delay(1000);
+        }
         return;
     }
 
@@ -166,8 +179,8 @@ void setup() {
     // ============================================================
     // Firmware Update
     // ============================================================
-        logln("\n🔧 Checking for firmware updates...");
-        updater.checkAndUpdate(sdcard.cfg.thingsboardServer, sdcard.cfg.accessToken, FW_VERSION, 1);
+    logln("\n🔧 Checking for firmware updates...");
+    updater.checkAndUpdate(sdcard.cfg.thingsboardServer, sdcard.cfg.accessToken, FW_VERSION, 1);
 
     // ============================================================
     // Sensor lesen
@@ -223,7 +236,6 @@ void setup() {
 
     tb.sendTelemetryData("Battery_Percentage", round(battery_pct * 100.0f) / 100.0f);
 
-
     tb.loop();
     tb.disconnect();
 
@@ -231,10 +243,10 @@ void setup() {
     // Home Assistant MQTT
     // ============================================================
     if (sdcard.cfg.ha_enabled) {
-        if (ha_mqtt.connect(sdcard.cfg.ha_broker, sdcard.cfg.ha_port,sdcard.cfg.ha_user, sdcard.cfg.ha_pass)) {
+        if (ha_mqtt.connect(sdcard.cfg.ha_broker, sdcard.cfg.ha_port, sdcard.cfg.ha_user, sdcard.cfg.ha_pass)) {
             ha_mqtt.publishDiscovery(sdcard.cfg.ha_device_id);
             delay(300);
-            ha_mqtt.publishState(sdcard.cfg.ha_device_id,data.temperature,data.pressure,data.humidity,data.gas_resistance,data.battery_voltage,battery_pct);
+            ha_mqtt.publishState(sdcard.cfg.ha_device_id, data.temperature, data.pressure, data.humidity, data.gas_resistance, data.battery_voltage, battery_pct);
             ha_mqtt.disconnect();
         }
     }
@@ -243,12 +255,13 @@ void setup() {
 
     digitalWrite(LED_BLUE, LOW);
 
+
+
     // ============================================================
     // Shutdown
     // ============================================================
     delay(300);
     system_shutdown();
-    digitalWrite(LED_BLUE, HIGH);
 }
 
 // ============================================================
@@ -256,5 +269,8 @@ void setup() {
 // ============================================================
 void loop() {
     delay(500);
+    digitalWrite(LED_BLUE, HIGH);
+    delay(3);
+    digitalWrite(LED_BLUE, LOW);
     system_shutdown();
 }

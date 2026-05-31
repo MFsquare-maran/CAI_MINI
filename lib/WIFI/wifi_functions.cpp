@@ -16,6 +16,7 @@ bool InitWiFi(char ssid[64],char password[64]) {
     while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < timeout) {
         delay(500);
         logf(".");
+        
     }
     logln("");
     if (WiFi.status() != WL_CONNECTED) {
