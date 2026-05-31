@@ -6,6 +6,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include "ha_mqtt.h"
 #include <Arduino_MQTT_Client.h>
 #include <ThingsBoard.h>
 #include "config_WLAN.h"
@@ -38,6 +39,11 @@ char password[64];
 char thingsboardServer[64];
 char accessToken[64];
 uint16_t THINGSBOARD_PORT;
+
+// ============================================================
+// HOME ASSISTANT
+// ============================================================
+HA_MQTT ha_mqtt;
 
 // ============================================================
 // Sensor / Daten
@@ -162,8 +168,8 @@ void setup() {
     // ============================================================
     // Firmware Update
     // ============================================================
-    logln("\n🔧 Checking for firmware updates...");
-    updater.checkAndUpdate(thingsboardServer, accessToken, FW_VERSION, 1);
+        logln("\n🔧 Checking for firmware updates...");
+        updater.checkAndUpdate(sdcard.cfg.thingsboardServer, sdcard.cfg.accessToken, FW_VERSION, 1);
 
     // ============================================================
     // Sensor lesen
@@ -193,7 +199,7 @@ void setup() {
     // ============================================================
     // SD Logging
     // ============================================================
-    sdcard.writeLog(data, "data.csv");
+    sdcard.writeLog(data, "/data.csv");
 
     // ============================================================
     // ThingsBoard
@@ -213,8 +219,27 @@ void setup() {
     tb.sendTelemetryData("Gas_Resistance",  round(data.gas_resistance * 100.0) / 100.0);
     tb.sendTelemetryData("Battery_Voltage", round(data.battery_voltage * 100.0) / 100.0);
 
+    // Battery Percentage berechnen
+    float battery_pct = (data.battery_voltage - 3.0f) / (4.2f - 3.0f) * 100.0f;
+    battery_pct = constrain(battery_pct, 0.0f, 100.0f);
+
+    tb.sendTelemetryData("Battery_Percentage", round(battery_pct * 100.0f) / 100.0f);
+
+
     tb.loop();
     tb.disconnect();
+
+    // ============================================================
+    // Home Assistant MQTT
+    // ============================================================
+    if (sdcard.cfg.ha_enabled) {
+        if (ha_mqtt.connect(sdcard.cfg.ha_broker, sdcard.cfg.ha_port,sdcard.cfg.ha_user, sdcard.cfg.ha_pass)) {
+            ha_mqtt.publishDiscovery(sdcard.cfg.ha_device_id);
+            delay(300);
+            ha_mqtt.publishState(sdcard.cfg.ha_device_id,data.temperature,data.pressure,data.humidity,data.gas_resistance,data.battery_voltage,battery_pct);
+            ha_mqtt.disconnect();
+        }
+    }
 
     disconnectWiFi(&wifiClient);
 

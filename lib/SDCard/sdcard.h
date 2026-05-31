@@ -45,6 +45,14 @@ struct IniConfig {
     // Wind-ADC-Tabelle
     uint16_t    wind_adc_table[16]    = {0};
     float    wind_direction_test   = 0.0f;
+
+    // HOME ASSISTANT
+    char ha_broker[64];
+    uint16_t ha_port;
+    char ha_device_id[32];
+    bool ha_enabled;
+    char ha_user[32];
+    char ha_pass[32];
 };
 
 // ============================================================
