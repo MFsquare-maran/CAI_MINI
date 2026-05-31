@@ -519,7 +519,7 @@ Die Zeichnung zeigt den Befestigungsflantsch mit den Hauptmassen: 50 mm Gesamtbr
 
 ## Autor
 
-**maran**  
+**Maran Friedli**  
 Erstellt: 2026-04-01  
 Plattform: [PlatformIO](https://platformio.org/) + [Arduino Framework](https://www.arduino.cc/)  
 Board: [Seeed XIAO ESP32-S3](https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/)
