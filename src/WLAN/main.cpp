@@ -88,9 +88,6 @@ void system_shutdown() {
     logln("System shutdown.");
     Serial.flush();
     delay(1000);
-
-    pinMode(SHUTDOWN_PIN, OUTPUT);
-    delay(200);
     digitalWrite(SHUTDOWN_PIN, LOW);
     delay(50);
     digitalWrite(SHUTDOWN_PIN, HIGH);

@@ -282,6 +282,13 @@ void loop() {
         tb.sendTelemetryData("Humidity",        round(data.humidity       * 100.0) / 100.0);
         tb.sendTelemetryData("Gas_Resistance",  round(data.gas_resistance  * 100.0) / 100.0);
         tb.sendTelemetryData("Battery_Voltage", round(data.battery_voltage         * 100.0) / 100.0);
+
+        // Battery Percentage berechnen
+        float battery_pct = (data.battery_voltage - 3.0f) / (4.2f - 3.0f) * 100.0f;
+        battery_pct = constrain(battery_pct, 0.0f, 100.0f);
+
+        tb.sendTelemetryData("Battery_Percentage", round(battery_pct * 100.0f) / 100.0f);
+
         tb.sendTelemetryData("Wind_Vane",       round(data.wind_vane             * 100.0) / 100.0);
         tb.sendTelemetryData("Wind_Speed_Avg",  round(data.wind_speed_avg          * 100.0) / 100.0);
         tb.sendTelemetryData("Wind_Speed_Gust", round(data.wind_speed_gust         * 100.0) / 100.0);

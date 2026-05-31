@@ -207,6 +207,12 @@ void sendToThingsBoard(const SensorPacket& p)
     tb.sendTelemetryData("Gas_Resistance", round(p.gasResistance  * 100.0) / 100.0);
     tb.sendTelemetryData("Battery_Voltage",round(p.batteryVoltage * 100.0) / 100.0);
 
+        // Battery Percentage berechnen
+    float battery_pct = (p.batteryVoltage - 3.0f) / (4.2f - 3.0f) * 100.0f;
+    battery_pct = constrain(battery_pct, 0.0f, 100.0f);
+
+    tb.sendTelemetryData("Battery_Percentage", round(battery_pct * 100.0f) / 100.0f);
+
     // ── RSSI: bereits beim Empfang in Core 0 kopiert ─────────
     float rssi_to_send;
     if (p.rssi == -1.0f)
@@ -280,13 +286,26 @@ void gateway_send()
 #ifdef HELTEC_WSL_V3
     float voltage = readBattVoltage_heltec(VBAT_PIN);
     tb.sendTelemetryData("Battery_Voltage", (voltage * 100.0f) / 100.0f);
+
+    // Battery Percentage berechnen
+    float battery_pct = (voltage - 3.0f) / (4.2f - 3.0f) * 100.0f;
+    battery_pct = constrain(battery_pct, 0.0f, 100.0f);
+
+    tb.sendTelemetryData("Battery_Percentage", round(battery_pct * 100.0f) / 100.0f);
+
     logf("[GATEWAY] Battery Voltage = ");
     logf(voltage);
     logln(" V");
 #endif
 
 #ifdef SEED_XIAO_ESP32S3
-    tb.sendTelemetryData("Battery_Voltage", random(3500, 4201) / 1000.0f);
+    float voltage = random(3500, 4201) / 1000.0f; // Simuliere Spannung zwischen 3.5V und 4.2V
+    tb.sendTelemetryData("Battery_Voltage", voltage);
+    // Battery Percentage berechnen
+    float battery_pct = (voltage - 3.0f) / (4.2f - 3.0f) * 100.0f;
+    battery_pct = constrain(battery_pct, 0.0f, 100.0f);
+
+    tb.sendTelemetryData("Battery_Percentage", round(battery_pct * 100.0f) / 100.0f);
 #endif
 
     logln("[TB] ✅ Daten gesendet.");

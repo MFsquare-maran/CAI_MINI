@@ -67,6 +67,6 @@
 
 
 
-#define FW_VERSION "1.2.1_GATEWAY" // Firmware-Version
+#define FW_VERSION "1.2.2_GATEWAY" // Firmware-Version
 
 
