@@ -180,7 +180,7 @@ void setup() {
 void loop() {
 
     // --- Testmodus: Wind-ADC-Rohwert per Seriell ausgeben ---
-    if (wind_direction_test == 1) {
+    if (sdcard.cfg.wind_direction_test == 1) {
         logf("Wind Direction ADC Test Value: ");
         logln(windRain.get_wind_direction_raw());
         delay(1000);
