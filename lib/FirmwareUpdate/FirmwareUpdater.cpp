@@ -32,11 +32,19 @@ bool FirmwareUpdater::checkAndUpdate(const char* server,
 
     closeConnection();
     _http = new HttpClient(_wifiClient, _server, 443);
+    _http->setTimeout(5000); // 5 Sekunden Timeout
 
     String path = "/api/v1/" + String(_deviceToken) +
                   "/attributes?sharedKeys=fw_version,fw_title,fw_tag";
 
-    _http->get(path.c_str());
+    int err = _http->get(path.c_str());
+
+    if (err != 0) {
+        logf("❌ Verbindung/Timeout bei Version-Check, err=");
+        logln(err);
+        closeConnection();
+        return false;
+    }
 
     int statusCode = _http->responseStatusCode();
     String response = _http->responseBody();
