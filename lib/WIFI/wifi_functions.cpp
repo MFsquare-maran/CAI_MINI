@@ -11,7 +11,7 @@ bool InitWiFi(char ssid[64],char password[64]) {
     WiFi.begin(ssid, password, 0, nullptr, true);
 
     unsigned long startAttemptTime = millis();
-    const unsigned long timeout = 5000;
+    const unsigned long timeout = WIFI_CONNECT_TIMEOUT_MS; // Timeout in milliseconds
 
     while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < timeout) {
         delay(500);
