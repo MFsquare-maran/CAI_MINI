@@ -1,5 +1,13 @@
 #include "wind_rain.h"
 
+// ── Debounce-Schwellen ──────────────────────────────────
+#define WIND_DEBOUNCE_US   10000UL   // Cap ~240 m/s -> killt Prell-Artefakte
+#define RAIN_DEBOUNCE_US  100000UL   // Cap ~10 Kippungen/s
+
+// ── Plausibilitäts-Grenzen (CH-Extreme mit Reserve) ─────
+#define GUST_MAX_MS         75.0f    // = 270 km/h, deckt Extremböen ab
+#define RAIN_MAX_MM         60.0f    // > CH-Rekord 41 mm/10min, mit Reserve
+
 // ── statics ─────────────────────────────────────────────
 volatile uint32_t wind_rain::_wind_pulse_count = 0;
 volatile uint32_t wind_rain::_rain_pulse_count = 0;
@@ -10,6 +18,8 @@ volatile uint32_t wind_rain::_min_pulse_interval = 0xFFFFFFFF;
 volatile uint32_t wind_rain::_last_wind_count_time = 0;
 volatile uint32_t wind_rain::_wind_last_count = 0;
 
+volatile uint32_t wind_rain::_last_rain_pulse_time = 0;   // NEU
+
 volatile bool wind_rain::_interrupts_enabled = true;
 
 // ── ISRs ────────────────────────────────────────────────
@@ -17,10 +27,12 @@ void IRAM_ATTR isr_wind_speed() {
     if (!wind_rain::_interrupts_enabled) return;
 
     uint32_t now = micros();
+    uint32_t dt  = now - wind_rain::_last_wind_pulse_time;
+
+    // Preller verwerfen: Flanke ignorieren, Zeitbasis NICHT verschieben
+    if (wind_rain::_last_wind_pulse_time != 0 && dt < WIND_DEBOUNCE_US) return;
 
     wind_rain::_wind_pulse_count++;
-
-    uint32_t dt = now - wind_rain::_last_wind_pulse_time;
 
     if (wind_rain::_last_wind_pulse_time != 0) {
         if (dt < wind_rain::_min_pulse_interval) {
@@ -33,7 +45,15 @@ void IRAM_ATTR isr_wind_speed() {
 
 void IRAM_ATTR isr_rain_gauge() {
     if (!wind_rain::_interrupts_enabled) return;
+
+    uint32_t now = micros();
+
+    // Preller verwerfen
+    if (wind_rain::_last_rain_pulse_time != 0 &&
+        (now - wind_rain::_last_rain_pulse_time) < RAIN_DEBOUNCE_US) return;
+
     wind_rain::_rain_pulse_count++;
+    wind_rain::_last_rain_pulse_time = now;
 }
 
 // ── constructor ─────────────────────────────────────────
@@ -74,6 +94,7 @@ void wind_rain::begin(float wind_direction_offset,
     _rain_pulse_count = 0;
     _min_pulse_interval = 0xFFFFFFFF;
     _last_wind_pulse_time = micros();
+    _last_rain_pulse_time = 0;   // NEU
 }
 
 // ── interrupt control ───────────────────────────────────
@@ -109,9 +130,11 @@ float wind_rain::_calc_gust() {
 
     if (seconds <= 0) return 0;
 
-    float speed = (1.0f / seconds) * _wind_factor;
+    float speed = (1.0f / seconds) * _wind_factor + _wind_speed_offset;
 
-    return speed + _wind_speed_offset;
+    if (speed > GUST_MAX_MS) return 0;   // Clamp: unplausibel -> 0 senden
+
+    return speed;
 }
 
 // ── wind direction ──────────────────────────────────────
@@ -146,7 +169,11 @@ float wind_rain::get_rain() {
     uint32_t c = _rain_pulse_count;
     interrupts();
 
-    return c * _rain_factor + _rain_offset;
+    float mm = c * _rain_factor + _rain_offset;
+
+    if (mm > RAIN_MAX_MM) return 0;   // Clamp: unplausibel -> 0 senden
+
+    return mm;
 }
 
 float wind_rain::get_wind_current() {
@@ -175,4 +202,3 @@ void wind_rain::reset_all() {
 
     _min_pulse_interval = 0xFFFFFFFF;
 }
-

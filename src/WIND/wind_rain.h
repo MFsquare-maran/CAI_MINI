@@ -67,6 +67,8 @@ private:
     static volatile uint32_t _last_wind_count_time;
     static volatile uint32_t _wind_last_count;
 
+    static volatile uint32_t _last_rain_pulse_time;   // NEU: für Rain-Debounce
+
     // ── Control flag ────────────────────────────────
     static volatile bool _interrupts_enabled;
 
