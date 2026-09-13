@@ -88,7 +88,7 @@ IniFile ini("/INIT.ini", FILE_READ, true);
 // ============================================================
 void system_shutdown() {
     Serial.println("System shutdown.");
-    
+
     delay(1000);
     pinMode(SHUTDOWN_PIN, OUTPUT);
     delay(200);
@@ -100,17 +100,16 @@ void system_shutdown() {
 // ============================================================
 // ThingsBoard
 // ============================================================
-void InitTB() {
-    logf("Connecting to: ");
-    logf(sdcard.cfg.thingsboardServer);
-    logf(" with token ");
-    logln(sdcard.cfg.accessToken);
+bool InitTB() {
+    logf("Connecting to: "); logf(sdcard.cfg.thingsboardServer);
+    logf(" with token ");    logln(sdcard.cfg.accessToken);
 
     if (!tb.connect(sdcard.cfg.thingsboardServer, sdcard.cfg.accessToken, sdcard.cfg.THINGSBOARD_PORT)) {
         logln("Failed to connect to ThingsBoard");
-    } else {
-        logln("Connected to ThingsBoard");
+        return false;
     }
+    logln("Connected to ThingsBoard");
+    return true;
 }
 
 // ============================================================
@@ -212,32 +211,35 @@ void setup() {
     // ============================================================
     sdcard.writeLog(data, "/data.csv");
 
+    // Battery Percentage berechnen (vor TB, damit HA-Block ihn auch bei TB-Fehler hat)
+    float battery_pct = constrain((data.battery_voltage - 3.0f) / 1.2f * 100.0f, 0.0f, 100.0f);
+
     // ============================================================
     // ThingsBoard
     // ============================================================
-    InitTB();
+    if (InitTB()) {
+        tb.sendAttributeData("rssi",      WiFi.RSSI());
+        tb.sendAttributeData("channel",   WiFi.channel());
+        tb.sendAttributeData("bssid",     WiFi.BSSIDstr().c_str());
+        tb.sendAttributeData("localIp",   WiFi.localIP().toString().c_str());
+        tb.sendAttributeData("ssid",      WiFi.SSID().c_str());
+        tb.sendAttributeData("fwversion", FW_VERSION);
 
-    tb.sendAttributeData("rssi", WiFi.RSSI());
-    tb.sendAttributeData("channel", WiFi.channel());
-    tb.sendAttributeData("bssid", WiFi.BSSIDstr().c_str());
-    tb.sendAttributeData("localIp", WiFi.localIP().toString().c_str());
-    tb.sendAttributeData("ssid", WiFi.SSID().c_str());
-    tb.sendAttributeData("fwversion", FW_VERSION);
+        tb.sendTelemetryData("Temperature",        round(data.temperature * 100.0) / 100.0);
+        tb.sendTelemetryData("Pressure",           round(data.pressure * 100.0) / 100.0);
+        tb.sendTelemetryData("Humidity",           round(data.humidity * 100.0) / 100.0);
+        tb.sendTelemetryData("Gas_Resistance",     round(data.gas_resistance * 100.0) / 100.0);
+        tb.sendTelemetryData("Battery_Voltage",    round(data.battery_voltage * 100.0) / 100.0);
+        tb.sendTelemetryData("Battery_Percentage", round(battery_pct * 100.0f) / 100.0f);
 
-    tb.sendTelemetryData("Temperature",     round(data.temperature * 100.0) / 100.0);
-    tb.sendTelemetryData("Pressure",        round(data.pressure * 100.0) / 100.0);
-    tb.sendTelemetryData("Humidity",        round(data.humidity * 100.0) / 100.0);
-    tb.sendTelemetryData("Gas_Resistance",  round(data.gas_resistance * 100.0) / 100.0);
-    tb.sendTelemetryData("Battery_Voltage", round(data.battery_voltage * 100.0) / 100.0);
-
-    // Battery Percentage berechnen
-    float battery_pct = (data.battery_voltage - 3.0f) / (4.2f - 3.0f) * 100.0f;
-    battery_pct = constrain(battery_pct, 0.0f, 100.0f);
-
-    tb.sendTelemetryData("Battery_Percentage", round(battery_pct * 100.0f) / 100.0f);
-
-    tb.loop();
-    tb.disconnect();
+        // FLUSH: Puffer rausschreiben lassen, bevor getrennt/abgeschaltet wird
+        logln("TB Daten senden ...");
+        delay(1000);
+        
+        tb.disconnect();
+    } else {
+        logln("TB skip – nicht verbunden");
+    }
 
     // ============================================================
     // Home Assistant MQTT

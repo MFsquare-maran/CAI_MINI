@@ -24,6 +24,6 @@
 
 
 
-#define FW_VERSION "1.1.4_WLAN"
+#define FW_VERSION "1.1.5_WLAN"
 
 
