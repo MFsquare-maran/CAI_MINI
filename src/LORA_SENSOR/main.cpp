@@ -209,6 +209,7 @@ void measureAndSend()
 
             logln("System shutdown.");
             logln("Deep Sleep für " + String(sending_period / 60/1000) + " Minuten.");
+            
             if (Serial) {
                 Serial.flush();                          // Log noch rausschreiben, bevor CPU schläft
             }

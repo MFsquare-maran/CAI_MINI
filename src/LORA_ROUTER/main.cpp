@@ -1,8 +1,9 @@
 // ============================================================
 //  main.cpp
-//  CAI_MINI LoRa Router
+//  CAI_MINI LoRa Router  —  HW_VERSION 2
 //  SX1262 via RadioLib
-//  Datum: 2026-04-16
+//  Power: immer wach, CPU-Scaling 10/240 MHz (kein Deep Sleep)
+//  Datum: 2026-09-21
 // ============================================================
 
 #include "config_LORA_ROUTER.h"
@@ -32,15 +33,12 @@ FirmwareUpdater updater;
 // ============================================================
 //  Konstanten
 // ============================================================
-constexpr uint32_t MAX_MESSAGE_SIZE    = 1024U;
-constexpr uint32_t SERIAL_DEBUG_BAUD   = 115200U;
-
+constexpr uint32_t MAX_MESSAGE_SIZE  = 1024U;
+constexpr uint32_t SERIAL_DEBUG_BAUD = 115200U;
 
 WiFiClient          wifiClient;
 Arduino_MQTT_Client mqttClient(wifiClient);
 ThingsBoardSized<32, 10> tb(mqttClient, MAX_MESSAGE_SIZE);
-
-
 
 LORA Lora_router(
     LORA_NSS,
@@ -63,14 +61,12 @@ BME680_Sensor bme;
 // ============================================================
 //  Zeitstempel für eigenes Paket
 // ============================================================
-unsigned long last_own_send = 0;
-unsigned long sending_period = 1; // 1min.
-
+unsigned long last_own_send  = 0;
+unsigned long sending_period = 1;   // Platzhalter, wird aus INI überschrieben [ms]
 
 // ============================================================
 //  ThingsBoard
 // ============================================================
-
 void InitTB() {
     logf("Connecting to: ");
     logf(sdcard.cfg.thingsboardServer);
@@ -99,7 +95,6 @@ void setCpuHigh()
     logln("[PM] CPU → 240 MHz (Aktiv)");
 }
 
-
 // ============================================================
 //  Fremdes Paket weiterleiten
 // ============================================================
@@ -109,18 +104,16 @@ void forwardPacket()
 
     String sender = Lora_router.readSender();
     String data   = Lora_router.readData();
-    float  rssi   = Lora_router.getLastRSSI();  // ← RSSI des empfangenen Pakets
+    float  rssi   = Lora_router.getLastRSSI();   // RSSI des empfangenen Pakets
 
     logln("[ROUTER] Paket empfangen von: " + sender);
     logln("[ROUTER] RSSI vom Sensor:      " + String(rssi, 1) + " dBm");
 
     // ── RSSI anhängen (leeres Feld ersetzen oder hinzufügen) ──
     if (data.endsWith("RSSI:")) {
-        // Sensor hat leeres RSSI-Feld → befüllen
-        data += String(round(rssi * 10.0) / 10.0);
+        data += String(round(rssi * 10.0) / 10.0);            // leeres Feld befüllen
     } else if (data.indexOf("RSSI:") == -1) {
-        // kein RSSI-Feld vorhanden → anhängen
-        data += ";RSSI:" + String(round(rssi * 10.0) / 10.0);
+        data += ";RSSI:" + String(round(rssi * 10.0) / 10.0); // Feld fehlt → anhängen
     }
     // sonst: RSSI bereits befüllt → nicht überschreiben
 
@@ -157,7 +150,7 @@ void sendOwnPacket()
     float battery_voltage = battery.getVoltage();
 
     String payload =
-        "Token:"            + String(sdcard.cfg.accessToken)                               +
+        "Token:"            + String(sdcard.cfg.accessToken)                   +
         ";Temperature:"     + String(round(temperature     * 100.0) / 100.0) +
         ";Pressure:"        + String(round(pressure        * 100.0) / 100.0) +
         ";Humidity:"        + String(round(humidity        * 100.0) / 100.0) +
@@ -175,9 +168,6 @@ void sendOwnPacket()
     setCpuLow();
 }
 
-
-
-
 // ============================================================
 //  setup()
 // ============================================================
@@ -185,8 +175,6 @@ void setup()
 {
     // ── CPU direkt auf Maximum für Init ──────────────────────
     setCpuFrequencyMhz(240);
-
-    
 
     Serial.begin(115200);
     delay(3000);
@@ -202,7 +190,17 @@ void setup()
     pinMode(LED_BLUE,   OUTPUT); digitalWrite(LED_BLUE,   LOW);
     pinMode(LED_ORANGE, OUTPUT); digitalWrite(LED_ORANGE, HIGH);
 
-    // ── WiFi deaktivieren (nicht benötigt) ───────────────────
+#if HW_VERSION == 2
+    // ── LoRa dauerhaft einschalten ────────────────────────────
+    // Router muss durchgehend empfangen → LORA_ENABLE bleibt HIGH,
+    // NIE pro Zyklus abschalten (im Gegensatz zum Sensor).
+    pinMode(LORA_ENABLE, OUTPUT);
+    digitalWrite(LORA_ENABLE, HIGH);
+    delay(100);
+    pinMode(BATTERY_CHARGING, INPUT);
+#endif
+
+    // ── WiFi deaktivieren (nur periodisch aktiv) ─────────────
     esp_wifi_stop();
 
     // ── SD + INI ──────────────────────────────────────────────
@@ -217,21 +215,18 @@ void setup()
                    sdcard.cfg.Huminity_offset,
                    sdcard.cfg.Gas_offset);
 
-    // ── LoRa ──────────────────────────────────────────────────
+    // ── LoRa (bleibt dauerhaft aktiv) ─────────────────────────
     if (!Lora_router.begin(sdcard.cfg.DeviceID)) {
         logln("[LORA] KRITISCH: Initialisierung fehlgeschlagen!");
         while (1) { delay(1000); }
     }
 
+    logln("[SETUP] ✅ Bereit");
 
-
-    logln("[SETUP] ✅ Bereit ");
-
-        
     sending_period = sdcard.cfg.sending_period;
 
-    // ── Erstes Senden sofort beim Start ───────────────────────
-    last_own_send = millis() + sending_period ;
+    // ── Erstes eigenes Senden sofort beim Start ───────────────
+    last_own_send = millis() + sending_period;
 
     // ── Nach Init auf niedrige Frequenz ──────────────────────
     setCpuLow();
@@ -245,7 +240,7 @@ void loop()
     // ── Paket empfangen? ──────────────────────────────────────
     if (Lora_router.packetReceived())
     {
-        forwardPacket(); // setzt CPU hoch/runter intern
+        forwardPacket();   // setzt CPU intern hoch/runter
     }
 
     // ── Zeit für eigenes Paket? ───────────────────────────────
@@ -253,7 +248,7 @@ void loop()
     {
         setCpuHigh();
 
-        if (InitWiFi(sdcard.cfg.ssid,sdcard.cfg.password)) 
+        if (InitWiFi(sdcard.cfg.ssid, sdcard.cfg.password))
         {
             logln("\n🔧 Checking for firmware updates...");
             updater.checkAndUpdate(sdcard.cfg.thingsboardServer, sdcard.cfg.accessToken, FW_VERSION, 1);
@@ -264,24 +259,23 @@ void loop()
             tb.sendAttributeData("ssid",      WiFi.SSID().c_str());
             tb.sendAttributeData("fwversion", FW_VERSION);
 
-            tb.loop();       // MQTT-Puffer leeren (Daten werden erst hier wirklich gesendet)
+            tb.loop();          // MQTT-Puffer leeren
             delay(1000);
-            tb.disconnect(); // MQTT-Verbindung sauber schliessen
+            tb.disconnect();    // MQTT sauber schliessen
             delay(1000);
             disconnectWiFi(&wifiClient);
             esp_wifi_stop();
-        
-            sendOwnPacket(); 
 
-            
-        }else{
-            sendOwnPacket(); 
+            sendOwnPacket();
+        }
+        else
+        {
+            sendOwnPacket();
         }
 
         last_own_send = millis();
-
     }
 
-    // ── Kurz yielden damit Interrupts verarbeitet werden ──────
+    // ── Kurz yielden, damit Interrupts verarbeitet werden ─────
     delay(10);
 }

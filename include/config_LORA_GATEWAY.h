@@ -27,6 +27,15 @@
 #endif
 
 
+#ifdef HELTEC_WSL_V3
+
+    #define FW_VERSION "1.2.2_GATEWAY_HELTEC" // Firmware-Version
+    
+#endif
+
+
+
+
 
 
 

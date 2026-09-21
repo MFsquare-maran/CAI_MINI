@@ -27,7 +27,7 @@
     #define LORA_SCK     7
     #define LORA_MISO    8
     #define LORA_MOSI    9
-    #define LORA_NSS      41
+    #define LORA_NSS     41
 
 
 #elif HW_VERSION == 2
@@ -59,7 +59,7 @@
     #define LORA_SCK     7
     #define LORA_MISO    8
     #define LORA_MOSI    9
-    #define LORA_NSS      40
+    #define LORA_NSS     40
 
 
     #define ON_BUTTON 2

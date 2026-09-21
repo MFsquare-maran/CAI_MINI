@@ -108,7 +108,9 @@ void system_shutdown() {
         logln("System shutdown.");
         logln("Deep Sleep für " + String(sdcard.cfg.sending_period / 60/1000) + " Minuten.");
         
-        Serial.flush();                          // Log noch rausschreiben, bevor CPU schläft
+        if (Serial) {
+            Serial.flush();                          // Log noch rausschreiben, bevor CPU schläft
+        }
         esp_sleep_enable_timer_wakeup((uint64_t)sdcard.cfg.sending_period * 1000ULL);  // ms → µs
 
         // Button: aufwachen, wenn ON_BUTTON auf den aktiven Pegel geht
