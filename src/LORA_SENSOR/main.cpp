@@ -207,16 +207,16 @@ void measureAndSend()
 #if HW_VERSION == 2
     void system_shutdown() {
 
-            Serial.println("System shutdown.");
-            Serial.flush();                          // Log noch rausschreiben, bevor CPU schläft
+            logln("System shutdown.");
+            logln("Deep Sleep für " + String(sending_period / 60/1000) + " Minuten.");
+            if (Serial) {
+                Serial.flush();                          // Log noch rausschreiben, bevor CPU schläft
+            }
+                                   // Log noch rausschreiben, bevor CPU schläft
             esp_sleep_enable_timer_wakeup((uint64_t)sending_period * 1000ULL);  // ms → µs
 
             // Button: aufwachen, wenn ON_BUTTON auf den aktiven Pegel geht
             esp_sleep_enable_ext0_wakeup((gpio_num_t)ON_BUTTON, 1);  // 0 = LOW aktiv, 1 = HIGH aktiv
-
-            // Ruhepegel im Sleep halten, sonst floatet der Pin und weckt zufällig
-            rtc_gpio_pullup_en((gpio_num_t)ON_BUTTON);       // bei aktiv-LOW (Taster gegen GND)
-            // rtc_gpio_pulldown_en((gpio_num_t)ON_BUTTON);   // bei aktiv-HIGH (Taster gegen 3V3)
 
             esp_deep_sleep_start();                  // kehrt nie zurück – Neustart via setup()
     }

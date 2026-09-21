@@ -15,7 +15,6 @@
  */
 
 #include "config_LORA_GATEWAY.h"
-#include "pins_LORA_GATEWAY.h"
 #include <Arduino.h>
 #include "LORA.h"
 #include "SensorPacket.h"
@@ -294,9 +293,8 @@ void gateway_send()
 
     tb.sendTelemetryData("Battery_Percentage", round(battery_pct * 100.0f) / 100.0f);
 
-    logf("[GATEWAY] Battery Voltage = ");
-    logf(voltage);
-    logln(" V");
+    logf("[GATEWAY] Battery Voltage = %.2f V\n", voltage);
+    
 #endif
 
 #ifdef SEED_XIAO_ESP32S3
