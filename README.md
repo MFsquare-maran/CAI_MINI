@@ -412,8 +412,7 @@ Die Firmware-Version wird über `FW_VERSION` in der jeweiligen `config_*.h` (pro
 
 | LED                     | Zustand           | Bedeutung                                     |
 |-------------------------|-------------------|-----------------------------------------------|
-| 🟠 Orange               | AN                | Gerät initialisiert / in Betrieb (Dauerzustand) |
-| 🟠 Orange               | AUS (nur Router)  | Router sendet gerade sein eigenes Paket       |
+| 🟠 Orange               | AN (nur Router)  | Router sendet gerade sein eigenes Paket       |
 | 🔵 Blau                 | AN                | Daten werden gesendet                         |
 | 🔵 Blau                 | AUS               | Senden abgeschlossen / Ruhe                   |
 | ⚪ LED_BOARD (Gateway)  | AN / blinkt       | Gateway aktiv, WLAN-Versuch oder Sendung      |
