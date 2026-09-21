@@ -17,8 +17,6 @@
 #include "esp_sleep.h"
 #include "log.h"
 
-#include "aes_key.h" 
-
 #ifdef LORA_ENCRYPTION_ENABLED
   #include <ChaCha.h>
   #include <Base64.h>

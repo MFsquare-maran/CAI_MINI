@@ -14,12 +14,9 @@
 #include "time.h"
 #include "BME680_Sensor.h"
 #include <math.h>
-#include "driver/rtc_io.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "FirmwareUpdater.h"
 #include <IniFile.h>
-
 #include "wifi_functions.h"
 #include "time_functions.h"
 #include "sdcard.h"
@@ -35,14 +32,7 @@ constexpr uint32_t MAX_MESSAGE_SIZE  = 1024U;
 constexpr uint32_t SERIAL_DEBUG_BAUD = 115200U;
 constexpr uint32_t WDT_TIMEOUT_S     = 180U;   // Watchdog: Reset nach 3 min
 
-// ============================================================
-// Netzwerk
-// ============================================================
-char ssid[64];
-char password[64];
-char thingsboardServer[64];
-char accessToken[64];
-uint16_t THINGSBOARD_PORT;
+
 
 // ============================================================
 // HOME ASSISTANT
@@ -55,10 +45,7 @@ HA_MQTT ha_mqtt;
 BME680_Sensor bme;
 Battery battery;
 
-float temperature_offset = 0.0;
-float Pressure_offset    = 0.0;
-float Huminity_offset    = 0.0;
-float Gas_offset         = 0.0;
+
 
 // ============================================================
 // Zeit
@@ -83,7 +70,7 @@ ThingsBoardSized<32, 10> tb(mqttClient, MAX_MESSAGE_SIZE);
 // Sonstiges
 // ============================================================
 FirmwareUpdater updater;
-IniFile ini("/INIT.ini", FILE_READ, true);
+
 
 // ============================================================
 // Shutdown Funktion
@@ -105,7 +92,7 @@ void system_shutdown() {
     #if HW_VERSION == 2
     
         delay(1000);
-        logln("System shutdown.");
+    
         logln("Deep Sleep für " + String(sdcard.cfg.sending_period / 60/1000) + " Minuten.");
         
         if (Serial) {
@@ -257,8 +244,7 @@ void setup() {
     sdcard.writeLog(data, "/data.csv");
 
     // Battery Percentage berechnen (vor TB, damit HA-Block ihn auch bei TB-Fehler hat)
-    float battery_pct = constrain((data.battery_voltage - 3.0f) / 1.2f * 100.0f, 0.0f, 100.0f);
-
+    float battery_pct = battery.getPercentage();
     // ============================================================
     // ThingsBoard
     // ============================================================

@@ -28,7 +28,6 @@
 #include "FirmwareUpdater.h"
 #include <IniFile.h>
 #include "wind_rain.h"
-#include "soc/rtc.h"
 #include "wifi_functions.h"
 #include "time_functions.h"
 #include "sdcard.h"
@@ -44,15 +43,6 @@ constexpr uint32_t SERIAL_DEBUG_BAUD   = 115200U;
 
 
 
-// ============================================================
-//  Netzwerk- und ThingsBoard-Konfiguration (aus INI geladen)
-// ============================================================
-char     ssid[64];
-char     password[64];
-char     thingsboardServer[64];
-char     accessToken[64];
-uint16_t THINGSBOARD_PORT;
-
 
 // ============================================================
 //  Timing
@@ -60,30 +50,12 @@ uint16_t THINGSBOARD_PORT;
 unsigned long sending_period = 30000;// Standard: 30 Sek. in Millisekunden
 unsigned long last_10min     = 0;
 unsigned long now            = 0;
-unsigned long last_update    = 0;
 
 
 
 
-// ============================================================
-//  Kalibrierungsoffsets (aus INI-Datei)
-// ============================================================
-float temperature_offset = 0.0;
-float Pressure_offset    = 0.0;
-float Huminity_offset    = 0.0;
-float Gas_offset         = 0.0;
-float wind_vane_offset   = 0.0;
-float wind_speed_offset  = 0.0;
-float rain_offset        = 0.0;
 
-// Ausrichtung des Geräts (0° = Norden, 90° = Osten, …)
-float device_direction   = 0.0;
 
-// ADC-Lookup-Tabelle für 16 Windrichtungen (je 22,5°)
-uint16_t wind_adc_table[16];
-
-// Testmodus: Wind-ADC-Rohwert per Seriell ausgeben (1 = aktiv)
-uint8_t wind_direction_test = 0;
 
 // ============================================================
 //  Time
@@ -98,8 +70,6 @@ char datetime[30]; // Formatierter Zeitstring (YYYY-MM-DD HH:MM:SS)
 BME680_Sensor bme;
 wind_rain     windRain;
 FirmwareUpdater updater;
-
-IniFile ini("/INIT.ini", FILE_READ, true);
 
 SDCard  sdcard;
 LogEntry data;
@@ -198,8 +168,22 @@ void loop() {
     // --- Normalbetrieb ---
     now = millis();
 
-    if ((now - last_10min >= sending_period) || digitalRead(ON_BUTTON) == HIGH) {
+    bool send_data = false;
 
+    if ((now - last_10min >= sending_period)) {
+        send_data = true;
+    }
+
+    #if HW_VERSION == 2
+        // Wenn ON_BUTTON gedrückt, sofort senden
+        if (digitalRead(ON_BUTTON) == HIGH) {
+            send_data = true;
+        }
+    #endif
+
+    if (send_data) {
+        send_data = false;
+        
         logln("Reading & Sending data...");
 
         windRain.disable_interrupts();
@@ -293,11 +277,13 @@ void loop() {
         tb.sendTelemetryData("Humidity",        round(data.humidity       * 100.0) / 100.0);
         tb.sendTelemetryData("Gas_Resistance",  round(data.gas_resistance  * 100.0) / 100.0);
         tb.sendTelemetryData("Battery_Voltage", round(data.battery_voltage         * 100.0) / 100.0);
-        tb.sendTelemetryData("Battery_Charging", !digitalRead(BATTERY_CHARGING));
+        #if HW_VERSION == 2
+            tb.sendTelemetryData("Battery_Charging", !digitalRead(BATTERY_CHARGING));
+        #endif
+     
 
         // Battery Percentage berechnen
-        float battery_pct = (data.battery_voltage - 3.0f) / (4.2f - 3.0f) * 100.0f;
-        battery_pct = constrain(battery_pct, 0.0f, 100.0f);
+        float battery_pct = battery.getPercentage();
 
         tb.sendTelemetryData("Battery_Percentage", round(battery_pct * 100.0f) / 100.0f);
 

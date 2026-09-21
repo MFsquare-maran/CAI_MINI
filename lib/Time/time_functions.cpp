@@ -24,7 +24,7 @@ bool LocalTime(char datetime[30], tm* timeinfo) {
         delay(500);
     }
 
-    strftime(datetime, 30, "%Y-%m-%d %H:%M:%S", timeinfo);  // ← kein &, und sizeof-Problem (s.u.)
+    strftime(datetime, 30, "%Y-%m-%d %H:%M:%S", timeinfo);  
     logf("Aktuelle Zeit: ");
     logln(datetime);
     return true;

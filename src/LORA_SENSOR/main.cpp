@@ -8,7 +8,6 @@
 #include "config_LORA_SENSOR.h"
 #include "pins_LORA_SENSOR.h"
 #include <Arduino.h>
-#include "driver/rtc_io.h"
 #include "LORA.h"
 #include "BME680_Sensor.h"
 #include <SPI.h>
@@ -38,7 +37,7 @@ FirmwareUpdater updater;
 //  Konstanten
 // ============================================================
 constexpr uint32_t MAX_MESSAGE_SIZE    = 1024U;
-constexpr uint32_t SERIAL_DEBUG_BAUD   = 115200U;
+
 
 
 WiFiClient          wifiClient;

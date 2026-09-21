@@ -45,9 +45,9 @@ LORA::LORA(int            nssPin,
       m_newPacket(false),
       m_sentCount(0),
       m_receivedCount(0),
+      m_spi(&spi),
       m_lastRSSI(0.0f),
-      m_lastSNR(0.0f),
-      m_spi(&spi)
+      m_lastSNR(0.0f)
 {
     m_spi->begin(sckPin, misoPin, mosiPin, nssPin);
     m_radio = new SX1262(new Module(nssPin, dio1Pin, resetPin, busyPin, *m_spi));

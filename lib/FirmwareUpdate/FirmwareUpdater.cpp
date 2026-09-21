@@ -177,13 +177,13 @@ bool FirmwareUpdater::downloadFirmwareToSD(const String& path,
     }
 
     uint8_t buf[512];
-    int written = 0;
+   
 
     while (_http->connected() || _http->available()) {
         int r = _http->readBytes(buf, sizeof(buf));
         if (r > 0) {
             file.write(buf, r);
-            written += r;
+            
         }
         delay(1);
     }
@@ -218,7 +218,7 @@ bool FirmwareUpdater::downloadAndFlashDirect(const String& path) {
     }
 
     uint8_t buf[512];
-    int written = 0;
+   
 
     while (_http->connected() || _http->available()) {
         int r = _http->readBytes(buf, sizeof(buf));
@@ -228,7 +228,7 @@ bool FirmwareUpdater::downloadAndFlashDirect(const String& path) {
                 Update.abort();
                 return false;
             }
-            written += r;
+            
         }
         delay(1);
     }

@@ -16,7 +16,6 @@ volatile uint32_t wind_rain::_last_wind_pulse_time = 0;
 volatile uint32_t wind_rain::_min_pulse_interval = 0xFFFFFFFF;
 
 volatile uint32_t wind_rain::_last_wind_count_time = 0;
-volatile uint32_t wind_rain::_wind_last_count = 0;
 
 volatile uint32_t wind_rain::_last_rain_pulse_time = 0;   // NEU
 
@@ -63,9 +62,7 @@ wind_rain::wind_rain()
   _rain_offset(0),
   _device_direction(0),
   _adc_table(nullptr),
-  _n_points(16),
-  _wind_current(0),
-  _wind_sum(0)
+  _n_points(16)
 {}
 
 // ── begin ───────────────────────────────────────────────
@@ -114,7 +111,7 @@ float wind_rain::_calc_wind_speed() {
     uint32_t dt = now - _last_wind_count_time;
 
     _last_wind_count_time = now;
-    _wind_last_count = count;
+    
 
     if (dt == 0) return 0;
 

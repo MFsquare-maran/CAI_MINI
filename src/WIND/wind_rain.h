@@ -6,8 +6,6 @@
 #include "pins_WIND.h"
 #include "log.h"
 
-#define GUST_WINDOW_SEC 3
-#define MAX_DIR_POINTS 16
 
 class wind_rain {
 public:
@@ -66,16 +64,13 @@ private:
     static volatile uint32_t _min_pulse_interval;
 
     static volatile uint32_t _last_wind_count_time;
-    static volatile uint32_t _wind_last_count;
 
     static volatile uint32_t _last_rain_pulse_time;   // NEU: für Rain-Debounce
 
     // ── Control flag ────────────────────────────────
     static volatile bool _interrupts_enabled;
 
-    // ── wind calc ────────────────────────────────────
-    float _wind_current;
-    float _wind_sum;
+
 
     // ── internals ────────────────────────────────────
     float _calc_wind_speed();

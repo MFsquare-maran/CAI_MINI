@@ -14,7 +14,6 @@
 #include "sdcard.h"
 #include "battery.h"
 #include "BME680_Sensor.h"
-#include "esp_pm.h"
 #include "esp_wifi.h"
 #include "wifi_functions.h"
 #include "FirmwareUpdater.h"

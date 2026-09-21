@@ -285,11 +285,10 @@ void gateway_send()
 
 #ifdef HELTEC_WSL_V3
     float voltage = readBattVoltage_heltec(VBAT_PIN);
-    tb.sendTelemetryData("Battery_Voltage", (voltage * 100.0f) / 100.0f);
+    tb.sendTelemetryData("Battery_Voltage", round(voltage*100.0)/100.0);
 
     // Battery Percentage berechnen
-    float battery_pct = (voltage - 3.0f) / (4.2f - 3.0f) * 100.0f;
-    battery_pct = constrain(battery_pct, 0.0f, 100.0f);
+    float battery_pct = battery_pct = battery.getPercentage();
 
     tb.sendTelemetryData("Battery_Percentage", round(battery_pct * 100.0f) / 100.0f);
 
@@ -301,8 +300,7 @@ void gateway_send()
     float voltage = random(3500, 4201) / 1000.0f; // Simuliere Spannung zwischen 3.5V und 4.2V
     tb.sendTelemetryData("Battery_Voltage", voltage);
     // Battery Percentage berechnen
-    float battery_pct = (voltage - 3.0f) / (4.2f - 3.0f) * 100.0f;
-    battery_pct = constrain(battery_pct, 0.0f, 100.0f);
+    float battery_pct = battery.getPercentage();
 
     tb.sendTelemetryData("Battery_Percentage", round(battery_pct * 100.0f) / 100.0f);
 #endif

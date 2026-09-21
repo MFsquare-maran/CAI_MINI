@@ -264,11 +264,9 @@ void SDCard::loadSimDefaults() {
     strncpy(cfg.ha_pass,      SIM_HA_PASS,      sizeof(cfg.ha_pass) - 1);
 }
 
+
 // ============================================================
-//  Kurze Zusammenfassung der Kernwerte
-// ============================================================
-// ============================================================
-//  Zusammenfassung ALLER Config-Werte (Debug)
+//  Zusammenfassung ALLER Config-Werte 
 // ============================================================
 void SDCard::_logSummary() {
     const char *src = "keine";

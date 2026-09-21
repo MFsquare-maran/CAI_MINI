@@ -32,16 +32,14 @@
 
 ---
 
-## CAI-Mini PCB HW:1.0
+## CAI-Mini PCB V1.0
 
 ![CAI-Mini V1.0 FMA](docs/CAI-Mini_Image_HW1.jpeg)
 
 
-## CAI-Mini PCB HW:2.0
+## CAI-Mini PCB V2.0
 
-![CAI-Mini V2.0 FMA](docs/CAI-Mini_Image_HW2.jpg)
-
-
+![CAI-Mini V2.0 FMA](docs/CAI-Mini_Image_HW2.jpeg)
 
 ---
 
@@ -412,12 +410,15 @@ Die Firmware-Version wird über `FW_VERSION` in der jeweiligen `config_*.h` (pro
 
 ## LED-Statusanzeige
 
-| LED         | Zustand | Bedeutung                       |
-|-------------|---------|---------------------------------|
-| 🟠 Orange   | AN      | Initialisierung / Betrieb       |
-| 🟠 Orange   | AUS     | WLAN verbunden                  |
-| 🔵 Blau     | AN      | Daten werden gesendet           |
-| 🔵 Blau     | AUS     | Senden abgeschlossen / Shutdown |
+| LED                     | Zustand           | Bedeutung                                     |
+|-------------------------|-------------------|-----------------------------------------------|
+| 🟠 Orange               | AN                | Gerät initialisiert / in Betrieb (Dauerzustand) |
+| 🟠 Orange               | AUS (nur Router)  | Router sendet gerade sein eigenes Paket       |
+| 🔵 Blau                 | AN                | Daten werden gesendet                         |
+| 🔵 Blau                 | AUS               | Senden abgeschlossen / Ruhe                   |
+| ⚪ LED_BOARD (Gateway)  | AN / blinkt       | Gateway aktiv, WLAN-Versuch oder Sendung      |
+
+> Gilt für WLAN, WIND und LoRa-Sensor/Router. Der **Gateway** nutzt statt Orange/Blau nur `LED_BOARD`. Orange bleibt nach dem Setup dauerhaft an (kein „aus bei WLAN-Verbindung").
 
 ---
 
