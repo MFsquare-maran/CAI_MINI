@@ -19,6 +19,7 @@
 #include <Arduino_MQTT_Client.h>
 #include <ThingsBoard.h>
 #include "config_WIND.h"
+#include "pins_WIND.h"
 #include "time.h"
 #include "BME680_Sensor.h"
 #include <math.h>
@@ -149,10 +150,17 @@ void setup() {
     // LEDs und Steuer-Pins konfigurieren
     pinMode(LED_BLUE,     OUTPUT);
     pinMode(LED_ORANGE,   OUTPUT);
-    pinMode(SHUTDOWN_PIN, OUTPUT);
+
     digitalWrite(LED_BLUE,     LOW);
     digitalWrite(LED_ORANGE,   HIGH);
-    digitalWrite(SHUTDOWN_PIN, LOW);
+
+    #if HW_VERSION == 2
+        pinMode(LORA_ENABLE, OUTPUT);
+        digitalWrite(LORA_ENABLE, LOW);
+        pinMode(BATTERY_CHARGING, INPUT);
+        pinMode(ON_BUTTON, INPUT);
+
+    #endif
 
     bme.begin();
     battery.begin(BATTERY_VOLTAGE);
@@ -190,9 +198,9 @@ void loop() {
     // --- Normalbetrieb ---
     now = millis();
 
-    if (now - last_10min >= sending_period) {
+    if ((now - last_10min >= sending_period) || digitalRead(ON_BUTTON) == HIGH) {
 
-        logln("Sending");
+        logln("Reading & Sending data...");
 
         windRain.disable_interrupts();
 
@@ -215,6 +223,9 @@ void loop() {
             logf("Humidity       = "); logf(data.humidity);       logln(" %");
             logf("Gas Resistance = "); logf(data.gas_resistance); logln(" kOhms");
             logf("Battery        = "); logf(data.battery_voltage); logln(" V");
+            #if HW_VERSION == 2
+                logf("Charging    = "); logln(!digitalRead(BATTERY_CHARGING));
+            #endif
             logln("------------------------------------");
         } else {
             logln("Fehler beim Lesen des BME680 Sensors.");
@@ -282,6 +293,7 @@ void loop() {
         tb.sendTelemetryData("Humidity",        round(data.humidity       * 100.0) / 100.0);
         tb.sendTelemetryData("Gas_Resistance",  round(data.gas_resistance  * 100.0) / 100.0);
         tb.sendTelemetryData("Battery_Voltage", round(data.battery_voltage         * 100.0) / 100.0);
+        tb.sendTelemetryData("Battery_Charging", !digitalRead(BATTERY_CHARGING));
 
         // Battery Percentage berechnen
         float battery_pct = (data.battery_voltage - 3.0f) / (4.2f - 3.0f) * 100.0f;
@@ -299,6 +311,7 @@ void loop() {
         tb.disconnect(); // MQTT-Verbindung sauber schliessen
 
         disconnectWiFi(&wifiClient);
+
         digitalWrite(LED_BLUE, LOW);
 
         // CPU wieder auf Sparmodus

@@ -1,6 +1,6 @@
 /*
  * ============================================================
- *  CAI_MINI — WLAN (REFactored like WIND)
+ *  CAI_MINI — WLAN
  * ============================================================
  */
 
@@ -10,9 +10,11 @@
 #include <Arduino_MQTT_Client.h>
 #include <ThingsBoard.h>
 #include "config_WLAN.h"
+#include "pins_WLAN.h"
 #include "time.h"
 #include "BME680_Sensor.h"
 #include <math.h>
+#include "driver/rtc_io.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "FirmwareUpdater.h"
@@ -84,17 +86,42 @@ FirmwareUpdater updater;
 IniFile ini("/INIT.ini", FILE_READ, true);
 
 // ============================================================
-// Shutdown Funktion (wieder integriert)
+// Shutdown Funktion
 // ============================================================
 void system_shutdown() {
     Serial.println("System shutdown.");
 
-    delay(1000);
-    pinMode(SHUTDOWN_PIN, OUTPUT);
-    delay(200);
-    digitalWrite(SHUTDOWN_PIN, LOW);
-    delay(50);
-    digitalWrite(SHUTDOWN_PIN, HIGH);
+    #if HW_VERSION == 1
+
+            delay(1000);
+            pinMode(SHUTDOWN_PIN, OUTPUT);
+            delay(200);
+            digitalWrite(SHUTDOWN_PIN, LOW);
+            delay(50);
+            digitalWrite(SHUTDOWN_PIN, HIGH);
+
+    #endif
+
+    #if HW_VERSION == 2
+    
+        delay(1000);
+        Serial.println("Deep Sleep für 10 Minuten.");
+        Serial.flush();                          // Log noch rausschreiben, bevor CPU schläft
+        esp_sleep_enable_timer_wakeup(CYCLE_TIME_MIN*60ULL * 1000000ULL);  // 10 min in µs
+
+        // Button: aufwachen, wenn ON_BUTTON auf den aktiven Pegel geht
+        esp_sleep_enable_ext0_wakeup((gpio_num_t)ON_BUTTON, 1);  // 0 = LOW aktiv, 1 = HIGH aktiv
+
+        // Ruhepegel im Sleep halten, sonst floatet der Pin und weckt zufällig
+        rtc_gpio_pullup_en((gpio_num_t)ON_BUTTON);       // bei aktiv-LOW (Taster gegen GND)
+        // rtc_gpio_pulldown_en((gpio_num_t)ON_BUTTON);   // bei aktiv-HIGH (Taster gegen 3V3)
+
+
+        esp_deep_sleep_start();                  // kehrt nie zurück – Neustart via setup()
+
+    #endif
+
+
 }
 
 // ============================================================
@@ -134,11 +161,25 @@ void setup() {
     // --- Pins ---
     pinMode(LED_BLUE, OUTPUT);
     pinMode(LED_ORANGE, OUTPUT);
-    pinMode(SHUTDOWN_PIN, OUTPUT);
+
+    
+
+
+    #if HW_VERSION == 1
+        pinMode(SHUTDOWN_PIN, OUTPUT);
+        digitalWrite(SHUTDOWN_PIN, LOW);
+    #endif
+
+    #if HW_VERSION == 2
+        pinMode(LORA_ENABLE, OUTPUT);
+        digitalWrite(LORA_ENABLE, LOW);
+        pinMode(BATTERY_CHARGING, INPUT);
+    #endif
+    
 
     digitalWrite(LED_BLUE, LOW);
     digitalWrite(LED_ORANGE, HIGH);
-    digitalWrite(SHUTDOWN_PIN, LOW);
+    
 
     // --- SD ---
     sdcard.init(SD_CLK, SD_MISO, SD_MOSI, SD_CS);
@@ -146,7 +187,7 @@ void setup() {
 
     // --- Sensor ---
     bme.begin();
-    bme.set_offset(temperature_offset, Pressure_offset, Huminity_offset, Gas_offset);
+    bme.set_offset(sdcard.cfg.temperature_offset, sdcard.cfg.Pressure_offset, sdcard.cfg.Huminity_offset, sdcard.cfg.Gas_offset);
 
     // --- Battery ---
     battery.begin(BATTERY_VOLTAGE);
@@ -192,6 +233,7 @@ void setup() {
         data.humidity        = bme.getHumidity();
         data.gas_resistance  = bme.getGasResistance();
         data.battery_voltage = battery.getVoltage();
+        
 
         logln("------------------------------------");
         logf("Temperature = "); logln(data.temperature);
@@ -199,6 +241,9 @@ void setup() {
         logf("Humidity    = "); logln(data.humidity);
         logf("Gas         = "); logln(data.gas_resistance);
         logf("Battery     = "); logln(data.battery_voltage);
+        #if HW_VERSION == 2
+            logf("Charging    = "); logln(!digitalRead(BATTERY_CHARGING));
+        #endif
         logln("------------------------------------");
     } else {
         logln("Fehler beim Lesen des BME680 Sensors.");
@@ -231,6 +276,10 @@ void setup() {
         tb.sendTelemetryData("Gas_Resistance",     round(data.gas_resistance * 100.0) / 100.0);
         tb.sendTelemetryData("Battery_Voltage",    round(data.battery_voltage * 100.0) / 100.0);
         tb.sendTelemetryData("Battery_Percentage", round(battery_pct * 100.0f) / 100.0f);
+
+        #if HW_VERSION == 2
+            tb.sendTelemetryData("Battery_Charging",   !digitalRead(BATTERY_CHARGING) );
+        #endif
 
         // FLUSH: Puffer rausschreiben lassen, bevor getrennt/abgeschaltet wird
         logln("TB Daten senden ...");

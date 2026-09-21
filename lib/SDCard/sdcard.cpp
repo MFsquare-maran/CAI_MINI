@@ -1,4 +1,10 @@
 #include "sdcard.h"
+#include <Preferences.h>   // NVS – im ESP32-Core enthalten, kein lib_deps nötig
+#include <string.h>        // memcmp, memcpy
+
+// NVS-Ablageort für die Config-Spiegelung
+static const char *NVS_NAMESPACE = "caimini";
+static const char *NVS_KEY       = "cfg";
 
 // ============================================================
 //  Konstruktor
@@ -11,7 +17,7 @@ SDCard::SDCard() {}
 bool SDCard::init(uint8_t sd_clk, uint8_t sd_miso, uint8_t sd_mosi, uint8_t sd_cs) {
     SPI.begin(sd_clk, sd_miso, sd_mosi, sd_cs);
     if (!SD.begin(sd_cs)) {
-        logln("❌ Fehler: SD-Karte konnte nicht initialisiert werden!");
+        logln("⚠️  Keine SD-Karte gefunden – Fallback (Flash/Test) wird genutzt.");
         _initialized = false;
         return false;
     }
@@ -26,7 +32,7 @@ bool SDCard::init(uint8_t sd_clk, uint8_t sd_miso, uint8_t sd_mosi, uint8_t sd_c
 bool SDCard::init(uint8_t sd_clk, uint8_t sd_miso, uint8_t sd_mosi, uint8_t sd_cs, SPIClass &spi) {
     spi.begin(sd_clk, sd_miso, sd_mosi, sd_cs);
     if (!SD.begin(sd_cs, spi)) {
-        logln("❌ Fehler: SD-Karte konnte nicht initialisiert werden!");
+        logln("⚠️  Keine SD-Karte gefunden – Fallback (Flash/Test) wird genutzt.");
         _initialized = false;
         return false;
     }
@@ -36,14 +42,43 @@ bool SDCard::init(uint8_t sd_clk, uint8_t sd_miso, uint8_t sd_mosi, uint8_t sd_c
 }
 
 // ============================================================
-//  INI-Werte lesen (gibt nur tatsächlich gelesene Werte aus)
+//  Config beschaffen – 3-stufiger Fallback
+//    1) echte SD-Karte  → INI lesen, danach in Flash spiegeln
+//    2) Flash (NVS)     → zuletzt gespeicherte Config
+//    3) Testdaten       → nur wenn nichts davon vorhanden
+//  Gibt immer true zurück (cfg ist danach in jedem Fall gefüllt).
 // ============================================================
 bool SDCard::readIni(const char *path) {
-    if (!_initialized) {
-        logln("[INI] FEHLER: SD-Karte ist nicht initialisiert!");
-        return false;
+    // --- 1) Echte SD-Karte ---
+    if (_initialized) {
+        if (_readIniFromSD(path)) {
+            _source = ConfigSource::SD_CARD;
+            saveToFlash();   // Config für spätere Boots ohne Karte sichern
+            return true;
+        }
+        logln("[INI] SD vorhanden, aber INI nicht lesbar – versuche Flash …");
     }
 
+    // --- 2) Flash (NVS) ---
+    if (loadFromFlash()) {
+        _source = ConfigSource::FLASH;
+        logln("[INI] Config aus Flash geladen:");
+        _logSummary();
+        return true;
+    }
+
+    // --- 3) Testdaten (allererster Start ohne SD/Flash) ---
+    logln("🧪 [INI] Weder SD noch Flash-Config – Testdaten aktiv:");
+    loadSimDefaults();
+    _source = ConfigSource::TEST;
+    _logSummary();
+    return true;
+}
+
+// ============================================================
+//  Reines SD-Lesen (füllt cfg) – true bei Erfolg
+// ============================================================
+bool SDCard::_readIniFromSD(const char *path) {
     IniFile ini(path, FILE_READ, true);
     if (!ini.open()) {
         logln("[INI] FEHLER: INI-Datei konnte nicht geöffnet werden!");
@@ -161,31 +196,184 @@ bool SDCard::readIni(const char *path) {
         cfg.ha_enabled = true;
         logf("  HA Broker:           "); logln(cfg.ha_broker);
     }
-
     if (ini.getValue("HOMEASSISTANT", "HA_PORT", buffer, sizeof(buffer))) {
         cfg.ha_port = atoi(buffer);
         logf("  HA Port:             "); logln(cfg.ha_port);
     }
-
     if (ini.getValue("HOMEASSISTANT", "HA_DEVICE_ID", buffer, sizeof(buffer))) {
         strlcpy(cfg.ha_device_id, buffer, sizeof(cfg.ha_device_id));
         logf("  HA Device ID:        "); logln(cfg.ha_device_id);
     }
-
     if (ini.getValue("HOMEASSISTANT", "HA_USER", buffer, sizeof(buffer))) {
         strlcpy(cfg.ha_user, buffer, sizeof(cfg.ha_user));
         logf("  HA User:             "); logln(cfg.ha_user);
     }
-
     if (ini.getValue("HOMEASSISTANT", "HA_PASS", buffer, sizeof(buffer))) {
         strlcpy(cfg.ha_pass, buffer, sizeof(cfg.ha_pass));
         logf("  HA Pass:             "); logln(cfg.ha_pass);
     }
 
+    ini.close();
+    return true;
+}
 
+// ============================================================
+//  Testdaten in cfg laden (SIM_*-Defaults aus dem Header)
+// ============================================================
+void SDCard::loadSimDefaults() {
+    // GENERAL
+    cfg.sending_period = (uint32_t)SIM_SENDING_PERIOD_MIN * 1000UL * 60UL;
 
-ini.close();
-return true;
+    // WIFI
+    strncpy(cfg.ssid,     SIM_SSID, sizeof(cfg.ssid) - 1);
+    strncpy(cfg.password, SIM_PW,   sizeof(cfg.password) - 1);
+
+    // THINGSBOARD
+    strncpy(cfg.thingsboardServer, SIM_TB_ADRESS, sizeof(cfg.thingsboardServer) - 1);
+    strncpy(cfg.accessToken,       SIM_TB_TOKKEN, sizeof(cfg.accessToken) - 1);
+    cfg.THINGSBOARD_PORT = SIM_TB_PORT;
+
+    // IDENTIFIKATION
+    strncpy(cfg.DeviceID, SIM_DEVICE_ID, sizeof(cfg.DeviceID) - 1);
+    strncpy(cfg.SenderID, SIM_SENDER_ID, sizeof(cfg.SenderID) - 1);
+
+    // BME680-Offsets
+    cfg.temperature_offset = SIM_TEMP_OFFSET;
+    cfg.Pressure_offset    = SIM_PRESSURE_OFFSET;
+    cfg.Huminity_offset    = SIM_HUMINITY_OFFSET;
+    cfg.Gas_offset         = SIM_GAS_OFFSET;
+
+    // WIND
+    cfg.device_direction    = SIM_DEVICE_DIRECTION;
+    cfg.wind_vane_offset    = SIM_WIND_VANE_OFFSET;
+    cfg.wind_speed_offset   = SIM_WIND_SPEED_OFFSET;
+    cfg.wind_direction_test = SIM_WIND_DIRECTION_TEST;
+
+    static const uint16_t sim_adc[16] = SIM_WIND_ADC_TABLE;
+    memcpy(cfg.wind_adc_table, sim_adc, sizeof(cfg.wind_adc_table));
+
+    // RAIN
+    cfg.rain_offset = SIM_RAIN_OFFSET;
+
+    // HOME ASSISTANT
+    cfg.ha_enabled = (SIM_HA_ENABLED != 0);
+    strncpy(cfg.ha_broker,    SIM_HA_BROKER,    sizeof(cfg.ha_broker) - 1);
+    cfg.ha_port = SIM_HA_PORT;
+    strncpy(cfg.ha_device_id, SIM_HA_DEVICE_ID, sizeof(cfg.ha_device_id) - 1);
+    strncpy(cfg.ha_user,      SIM_HA_USER,      sizeof(cfg.ha_user) - 1);
+    strncpy(cfg.ha_pass,      SIM_HA_PASS,      sizeof(cfg.ha_pass) - 1);
+}
+
+// ============================================================
+//  Kurze Zusammenfassung der Kernwerte
+// ============================================================
+// ============================================================
+//  Zusammenfassung ALLER Config-Werte (Debug)
+// ============================================================
+void SDCard::_logSummary() {
+    const char *src = "keine";
+    switch (_source) {
+        case ConfigSource::SD_CARD: src = "SD-Karte";  break;
+        case ConfigSource::FLASH:   src = "Flash";     break;
+        case ConfigSource::TEST:    src = "Testdaten"; break;
+        default: break;
+    }
+    logf("  Quelle:        "); logln(src);
+
+    logln("  -- GENERAL --");
+    logf("  Periode(ms):   "); logln(cfg.sending_period);
+
+    logln("  -- WIFI --");
+    logf("  SSID:          "); logln(cfg.ssid);
+    logf("  PW:            "); logln(cfg.password);
+
+    logln("  -- THINGSBOARD --");
+    logf("  Server:        "); logln(cfg.thingsboardServer);
+    logf("  Token:         "); logln(cfg.accessToken);
+    logf("  Port:          "); logln(cfg.THINGSBOARD_PORT);
+
+    logln("  -- ID --");
+    logf("  Device ID:     "); logln(cfg.DeviceID);
+    logf("  Sender ID:     "); logln(cfg.SenderID);
+
+    logln("  -- BME680-Offsets --");
+    logf("  Temp:          "); logln(cfg.temperature_offset);
+    logf("  Pressure:      "); logln(cfg.Pressure_offset);
+    logf("  Humidity:      "); logln(cfg.Huminity_offset);
+    logf("  Gas:           "); logln(cfg.Gas_offset);
+
+    logln("  -- WIND --");
+    logf("  Device Dir:    "); logln(cfg.device_direction);
+    logf("  Vane Offset:   "); logln(cfg.wind_vane_offset);
+    logf("  Speed Offset:  "); logln(cfg.wind_speed_offset);
+    logf("  Dir Test:      "); logln(cfg.wind_direction_test);
+    logln("  ADC-Tabelle:");
+    for (size_t i = 0; i < 16; i++) {
+        logf("    "); logf(i * 22.5); logf("° -> "); logln(cfg.wind_adc_table[i]);
+    }
+
+    logln("  -- RAIN --");
+    logf("  Rain Offset:   "); logln(cfg.rain_offset);
+
+    logln("  -- HOME ASSISTANT --");
+    logf("  Enabled:       "); logln(cfg.ha_enabled ? "ja" : "nein");
+    logf("  Broker:        "); logln(cfg.ha_broker);
+    logf("  Port:          "); logln(cfg.ha_port);
+    logf("  HA Device ID:  "); logln(cfg.ha_device_id);
+    logf("  User:          "); logln(cfg.ha_user);
+    logf("  Pass:          "); logln(cfg.ha_pass);
+}
+
+// ============================================================
+//  cfg in den Flash (NVS) spiegeln – nur bei Änderung
+// ============================================================
+bool SDCard::saveToFlash() {
+    Preferences prefs;
+    if (!prefs.begin(NVS_NAMESPACE, false)) {
+        logln("[FLASH] FEHLER: NVS konnte nicht geöffnet werden.");
+        return false;
+    }
+
+    // Nur schreiben, wenn sich etwas geändert hat (schont den Flash)
+    bool differs = true;
+    if (prefs.getBytesLength(NVS_KEY) == sizeof(IniConfig)) {
+        IniConfig stored;
+        prefs.getBytes(NVS_KEY, &stored, sizeof(stored));
+        differs = (memcmp(&stored, &cfg, sizeof(IniConfig)) != 0);
+    }
+
+    bool ok = true;
+    if (differs) {
+        size_t n = prefs.putBytes(NVS_KEY, &cfg, sizeof(cfg));
+        ok = (n == sizeof(cfg));
+        logln(ok ? "[FLASH] Config gespeichert." : "[FLASH] FEHLER beim Speichern.");
+    } else {
+        logln("[FLASH] Config unverändert – kein Schreibzugriff.");
+    }
+
+    prefs.end();
+    return ok;
+}
+
+// ============================================================
+//  cfg aus dem Flash (NVS) laden
+//  → false, wenn nichts (oder ein anderes Layout) gespeichert ist
+// ============================================================
+bool SDCard::loadFromFlash() {
+    Preferences prefs;
+    if (!prefs.begin(NVS_NAMESPACE, true)) {   // read-only; false = Namespace existiert nicht
+        return false;
+    }
+
+    // Layout-Guard: nur laden, wenn Größe exakt passt
+    if (prefs.getBytesLength(NVS_KEY) != sizeof(IniConfig)) {
+        prefs.end();
+        return false;
+    }
+
+    prefs.getBytes(NVS_KEY, &cfg, sizeof(cfg));
+    prefs.end();
+    return true;
 }
 
 // ============================================================
@@ -199,13 +387,22 @@ void SDCard::_printIfValid(File &f, float value) {
 }
 
 // ============================================================
-//  Datenzeile in CSV schreiben
-//  → leere Zellen, wo Werte fehlen (NAN bzw. leerer String)
+//  Datenzeile schreiben – mit SD in CSV, ohne SD auf die Konsole
 // ============================================================
 bool SDCard::writeLog(const LogEntry &e, const char *path) {
     if (!_initialized) {
-        logln("[LOG] FEHLER: SD-Karte ist nicht initialisiert!");
-        return false;
+        // Kein physischer Speicher → Zeile nur ausgeben (Bench/Test)
+        logf("🧪 [LOG-SIM] ");
+        logf(e.datetime); logf(" | T=");
+        if (!isnan(e.temperature))     logf(e.temperature);
+        logf(" P=");
+        if (!isnan(e.pressure))        logf(e.pressure);
+        logf(" H=");
+        if (!isnan(e.humidity))        logf(e.humidity);
+        logf(" Bat=");
+        if (!isnan(e.battery_voltage)) logf(e.battery_voltage);
+        logln("");
+        return true;
     }
 
     // Datei mit Header anlegen, falls noch nicht vorhanden
@@ -227,7 +424,6 @@ bool SDCard::writeLog(const LogEntry &e, const char *path) {
         return false;
     }
 
-    // Datum (leer falls nicht gesetzt)
     if (e.datetime && e.datetime[0] != '\0') f.print(e.datetime);
     f.print(",");
 
@@ -251,6 +447,7 @@ bool SDCard::writeLog(const LogEntry &e, const char *path) {
 //  SD-Karte freigeben
 // ============================================================
 void SDCard::release() {
+    if (!_initialized) return;   // ohne Karte nichts zu tun
     SD.end();
     _initialized = false;
     logln("[SD] SD-Karte freigegeben.");

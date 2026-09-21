@@ -6,6 +6,7 @@
 // ============================================================
 
 #include "config_LORA_ROUTER.h"
+#include "pins_LORA_ROUTER.h"
 #include <Arduino.h>
 #include <SPI.h>
 #include "LORA.h"

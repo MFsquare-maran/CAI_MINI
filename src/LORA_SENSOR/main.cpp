@@ -6,7 +6,9 @@
 // ============================================================
 
 #include "config_LORA_SENSOR.h"
+#include "pins_LORA_SENSOR.h"
 #include <Arduino.h>
+#include "driver/rtc_io.h"
 #include "LORA.h"
 #include "BME680_Sensor.h"
 #include <SPI.h>
@@ -144,10 +146,19 @@ String buildPayload(float temperature, float pressure, float humidity,
 // ============================================================
 void measureAndSend()
 {
-    setCpuHigh();
+    #if HW_VERSION == 1
+        setCpuHigh();
+    #endif  
+ 
 
     // ── LoRa aufwecken ────────────────────────────────────────
     logln("[SENSOR] Wecke LoRa auf...");
+
+    #if HW_VERSION == 2
+        digitalWrite(LORA_ENABLE, HIGH);
+        delay(100);
+    #endif
+
     if (!Lora_sensor.begin(sdcard.cfg.DeviceID)) {
         logln("[LORA] KRITISCH: Initialisierung fehlgeschlagen!");
         setCpuLow();
@@ -176,20 +187,51 @@ void measureAndSend()
     }
 
     // ── LoRa schlafen schicken ────────────────────────────────
-    logln("[SENSOR] LoRa → Sleep.");
-    Lora_sensor.sleepRadio(); // nur Radio schlafen, kein ESP32-Sleep
 
-    last_send = millis();
-    logln("[SENSOR] Gute Nacht! Warte auf nächsten Zyklus...");
-    setCpuLow();
+
+    #if HW_VERSION == 2
+        logln("[SENSOR] LoRa → off.");
+        digitalWrite(LORA_ENABLE, LOW);
+    #endif
+
+    #if HW_VERSION == 1
+
+        logln("[SENSOR] LoRa → Sleep.");
+        Lora_sensor.sleepRadio(); // nur Radio schlafen, kein ESP32-Sleep
+        last_send = millis();
+        logln("[SENSOR] Gute Nacht! Warte auf nächsten Zyklus...");
+        setCpuLow();
+    #endif
 }
+
+#if HW_VERSION == 2
+    void system_shutdown() {
+
+            Serial.println("System shutdown.");
+            Serial.flush();                          // Log noch rausschreiben, bevor CPU schläft
+            esp_sleep_enable_timer_wakeup((uint64_t)sending_period * 1000ULL);  // ms → µs
+
+            // Button: aufwachen, wenn ON_BUTTON auf den aktiven Pegel geht
+            esp_sleep_enable_ext0_wakeup((gpio_num_t)ON_BUTTON, 1);  // 0 = LOW aktiv, 1 = HIGH aktiv
+
+            // Ruhepegel im Sleep halten, sonst floatet der Pin und weckt zufällig
+            rtc_gpio_pullup_en((gpio_num_t)ON_BUTTON);       // bei aktiv-LOW (Taster gegen GND)
+            // rtc_gpio_pulldown_en((gpio_num_t)ON_BUTTON);   // bei aktiv-HIGH (Taster gegen 3V3)
+
+            esp_deep_sleep_start();                  // kehrt nie zurück – Neustart via setup()
+    }
+
+#endif
 
 // ============================================================
 //  setup()
 // ============================================================
 void setup()
 {
-    setCpuFrequencyMhz(240);
+    #if HW_VERSION == 1
+        setCpuFrequencyMhz(240);
+    #endif
+      
     Serial.begin(115200);
     delay(3000);
 
@@ -203,6 +245,15 @@ void setup()
 
     pinMode(LED_BLUE, OUTPUT);
     digitalWrite(LED_BLUE, LOW);
+
+    pinMode(LED_ORANGE, OUTPUT);
+    digitalWrite(LED_ORANGE, HIGH);
+
+    #if HW_VERSION == 2
+        pinMode(LORA_ENABLE, OUTPUT);
+        digitalWrite(LORA_ENABLE, LOW);
+        pinMode(BATTERY_CHARGING, INPUT);
+    #endif
 
     // ── WiFi deaktivieren ─────────────────────────────────────
     esp_wifi_stop();
@@ -221,10 +272,17 @@ void setup()
 
     sending_period = sdcard.cfg.sending_period;
 
-    // ── Erstes Senden sofort beim Start ───────────────────────
+
+
+    #if HW_VERSION == 1
+
+        // ── Erstes Senden sofort beim Start ───────────────────────
     last_send = millis() + (sending_period);
 
     setCpuLow();
+    
+    #endif
+
 }
 
 // ============================================================
@@ -232,9 +290,45 @@ void setup()
 // ============================================================
 void loop()
 {
-    if (millis() - last_send >= sending_period )
-    {   
-        setCpuHigh();
+
+    #if HW_VERSION == 1
+
+        if (millis() - last_send >= sending_period )
+            {   
+                setCpuHigh();
+
+                if (InitWiFi(sdcard.cfg.ssid,sdcard.cfg.password)) 
+                {
+                    logln("\n🔧 Checking for firmware updates...");
+                    updater.checkAndUpdate(sdcard.cfg.thingsboardServer, sdcard.cfg.accessToken, FW_VERSION, 1);
+                    InitTB();
+                    tb.sendAttributeData("channel",   WiFi.channel());
+                    tb.sendAttributeData("bssid",     WiFi.BSSIDstr().c_str());
+                    tb.sendAttributeData("localIp",   WiFi.localIP().toString().c_str());
+                    tb.sendAttributeData("ssid",      WiFi.SSID().c_str());
+                    tb.sendAttributeData("fwversion", FW_VERSION);
+
+                    tb.loop();       // MQTT-Puffer leeren (Daten werden erst hier wirklich gesendet)
+                    delay(1000);
+                    tb.disconnect(); // MQTT-Verbindung sauber schliessen
+                    delay(1000);
+                    disconnectWiFi(&wifiClient);
+                    esp_wifi_stop();
+                    measureAndSend();
+
+                }else{
+                    esp_wifi_stop();
+                    measureAndSend(); // senden über LORA
+                }
+
+                
+            }
+
+            // ── Kurz yielden ──────────────────────────────────────────
+            delay(10);
+    #endif
+    
+    #if HW_VERSION == 2
 
         if (InitWiFi(sdcard.cfg.ssid,sdcard.cfg.password)) 
         {
@@ -251,17 +345,23 @@ void loop()
             delay(1000);
             tb.disconnect(); // MQTT-Verbindung sauber schliessen
             delay(1000);
+            logln("[SENSOR] WiFi → disconnect → wifi shutdown.");
             disconnectWiFi(&wifiClient);
             esp_wifi_stop();
             measureAndSend();
+            system_shutdown();
 
         }else{
+            
+            logln("[SENSOR] WiFi → disconnect → wifi shutdown.");
+            esp_wifi_stop();
             measureAndSend(); // senden über LORA
+            system_shutdown();
         }
 
-        
-    }
+                
+            
 
-    // ── Kurz yielden ──────────────────────────────────────────
-    delay(10);
+    
+    #endif
 }

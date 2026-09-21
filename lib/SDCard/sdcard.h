@@ -8,6 +8,95 @@
 #include <IniFile.h>
 #include <math.h>     // NAN, isnan()
 #include "log.h"
+
+// ============================================================
+//  Test-/Fallback-Defaults
+//  → nur genutzt, wenn KEINE SD-Karte UND KEINE Flash-Config da ist
+//  → jeweils per -DSIM_xxx in platformio.ini überschreibbar
+// ============================================================
+// --- GENERAL ---
+#ifndef SIM_SENDING_PERIOD_MIN
+  #define SIM_SENDING_PERIOD_MIN 1
+#endif
+// --- WIFI ---
+#ifndef SIM_SSID
+  #define SIM_SSID        "TEST"
+#endif
+#ifndef SIM_PW
+  #define SIM_PW          "123456789"
+#endif
+// --- THINGSBOARD ---
+#ifndef SIM_TB_ADRESS
+  #define SIM_TB_ADRESS   "iot.mfsquare.ch"
+#endif
+#ifndef SIM_TB_TOKKEN
+  #define SIM_TB_TOKKEN   ""
+#endif
+#ifndef SIM_TB_PORT
+  #define SIM_TB_PORT     1884
+#endif
+// --- IDENTIFIKATION ---
+#ifndef SIM_DEVICE_ID
+  #define SIM_DEVICE_ID   "CAI-MINI-SIM"
+#endif
+#ifndef SIM_SENDER_ID
+  #define SIM_SENDER_ID   "SIM_SENDER"
+#endif
+// --- BME680-Offsets ---
+#ifndef SIM_TEMP_OFFSET
+  #define SIM_TEMP_OFFSET       -2.05f
+#endif
+#ifndef SIM_PRESSURE_OFFSET
+  #define SIM_PRESSURE_OFFSET   0.0f
+#endif
+#ifndef SIM_HUMINITY_OFFSET
+  #define SIM_HUMINITY_OFFSET   0.0f
+#endif
+#ifndef SIM_GAS_OFFSET
+  #define SIM_GAS_OFFSET        0.0f
+#endif
+// --- WIND ---
+#ifndef SIM_DEVICE_DIRECTION
+  #define SIM_DEVICE_DIRECTION    0.0f
+#endif
+#ifndef SIM_WIND_VANE_OFFSET
+  #define SIM_WIND_VANE_OFFSET    0.0f
+#endif
+#ifndef SIM_WIND_SPEED_OFFSET
+  #define SIM_WIND_SPEED_OFFSET   0.0f
+#endif
+#ifndef SIM_WIND_DIRECTION_TEST
+  #define SIM_WIND_DIRECTION_TEST 0.0f
+#endif
+// 16 ADC-Stützpunkte (0°..337.5° in 22.5°-Schritten) – PLATZHALTER, anpassen!
+#ifndef SIM_WIND_ADC_TABLE
+  #define SIM_WIND_ADC_TABLE { 0, 273, 546, 819, 1092, 1365, 1638, 1911, \
+                               2184, 2457, 2730, 3003, 3276, 3549, 3822, 4095 }
+#endif
+// --- RAIN ---
+#ifndef SIM_RAIN_OFFSET
+  #define SIM_RAIN_OFFSET   0.0f
+#endif
+// --- HOME ASSISTANT ---
+#ifndef SIM_HA_ENABLED
+  #define SIM_HA_ENABLED    0            // 0 = aus (kein Broker-Verbindungsversuch im Test)
+#endif
+#ifndef SIM_HA_BROKER
+  #define SIM_HA_BROKER     "192.168.1.10"
+#endif
+#ifndef SIM_HA_PORT
+  #define SIM_HA_PORT       1883
+#endif
+#ifndef SIM_HA_DEVICE_ID
+  #define SIM_HA_DEVICE_ID  "cai-mini-sim"
+#endif
+#ifndef SIM_HA_USER
+  #define SIM_HA_USER       "mqtt"
+#endif
+#ifndef SIM_HA_PASS
+  #define SIM_HA_PASS       "mqtt"
+#endif
+
 // ============================================================
 //  Konfigurations-Struct (wird aus der INI gefüllt)
 // ============================================================
@@ -43,16 +132,16 @@ struct IniConfig {
     float    rain_offset           = 0.0f;
 
     // Wind-ADC-Tabelle
-    uint16_t    wind_adc_table[16]    = {0};
+    uint16_t wind_adc_table[16]    = {0};
     float    wind_direction_test   = 0.0f;
 
     // HOME ASSISTANT
-    char ha_broker[64];
-    uint16_t ha_port;
-    char ha_device_id[32];
-    bool ha_enabled;
-    char ha_user[32];
-    char ha_pass[32];
+    char     ha_broker[64]         = "";
+    uint16_t ha_port               = 0;
+    char     ha_device_id[32]      = "";
+    bool     ha_enabled            = false;
+    char     ha_user[32]           = "";
+    char     ha_pass[32]           = "";
 };
 
 // ============================================================
@@ -76,6 +165,9 @@ struct LogEntry {
 // ============================================================
 class SDCard {
 public:
+    // Woher stammt die aktive Config?
+    enum class ConfigSource { NONE, SD_CARD, FLASH, TEST };
+
     // alle ausgelesenen INI-Werte – nach readIni() zugreifbar
     IniConfig cfg;
 
@@ -85,22 +177,31 @@ public:
     bool init(uint8_t sd_clk, uint8_t sd_miso, uint8_t sd_mosi, uint8_t sd_cs);
     bool init(uint8_t sd_clk, uint8_t sd_miso, uint8_t sd_mosi, uint8_t sd_cs, SPIClass &spi);
 
-    // INI-Datei lesen (füllt cfg)
+    // Config beschaffen: SD → Flash → Testdaten (füllt cfg, immer true)
     bool readIni(const char *path = "/INIT.ini");
 
-    // Datenzeile in CSV-Datei schreiben
+    // Datenzeile in CSV-Datei schreiben (ohne SD: Ausgabe auf Konsole)
     bool writeLog(const LogEntry &entry, const char *path = "/data.csv");
 
     // SD-Karte wieder freigeben
     void release();
 
-    // Statusabfrage
-    bool isReady() const { return _initialized; }
+    // Flash-Persistenz (NVS)
+    bool saveToFlash();     // spiegelt cfg in den Flash (nur bei Änderung)
+    bool loadFromFlash();   // lädt cfg aus dem Flash (false = nichts gespeichert)
+
+    // Statusabfragen
+    bool         isReady()     const { return _initialized; }
+    ConfigSource source()      const { return _source; }
+    bool         isSimulated() const { return _source == ConfigSource::TEST; }
 
 private:
-    bool _initialized = false;
+    bool         _initialized = false;
+    ConfigSource _source      = ConfigSource::NONE;
 
-    // Hilfsfunktion: druckt Wert nur, wenn er nicht NAN ist
+    bool _readIniFromSD(const char *path);   // reines SD-Lesen (true = ok)
+    void loadSimDefaults();                   // füllt cfg mit SIM_*-Werten
+    void _logSummary();                       // kurze Ausgabe der Kernwerte
     void _printIfValid(File &f, float value);
 };
 

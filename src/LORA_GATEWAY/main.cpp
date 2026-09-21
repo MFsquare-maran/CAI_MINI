@@ -15,6 +15,7 @@
  */
 
 #include "config_LORA_GATEWAY.h"
+#include "pins_LORA_GATEWAY.h"
 #include <Arduino.h>
 #include "LORA.h"
 #include "SensorPacket.h"

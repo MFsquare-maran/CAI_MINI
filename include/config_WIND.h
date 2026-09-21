@@ -1,28 +1,23 @@
 
+/*
+ * ============================================================
+ *  CAI_MINI — WIND
+ * ============================================================
+ *  Beschreibung : Verbindet sich per WLAN und sendet Sensordaten (BME680 + Wind/Rain) via MQTT / ThingsBoard
+ *  Board        : Seeed XIAO ESP32-S3
+ *  Framework    : Arduino
+ *  Autor        : maran
+ *  Erstellt     : 2026-04-01
+ * ============================================================
+ */
 
-#define BME_680_SCL 6
-#define BME_680_SDA 5
+#if HW_VERSION == 1
 
+    #define FW_VERSION "1.2.3_WIND_HW1" // Firmware-Version
 
-#define WIND_VANE 10
-#define WIND_SPEED 14
-#define RAIN_GAUGE 15
+#elif HW_VERSION == 2
 
+    #define FW_VERSION "1.2.3_WIND_HW2" // Firmware-Version
 
-#define LED_BLUE 2
-#define LED_ORANGE 21
+#endif
 
-#define BATTERY_VOLTAGE 1
-
-
-#define SD_CLK 13
-#define SD_MISO 12
-#define SD_MOSI 11
-#define SD_CS 44
-#define SD_DETECT 7
-
-#define SHUTDOWN_PIN 8
-
-
-
-#define FW_VERSION "1.2.3_WIND" // Firmware-Version
