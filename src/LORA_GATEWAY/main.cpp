@@ -15,6 +15,7 @@
  */
 
 #include "config_LORA_GATEWAY.h"
+#include "pins_LORA_GATEWAY.h"
 #include <Arduino.h>
 #include "LORA.h"
 #include "SensorPacket.h"
@@ -285,22 +286,24 @@ void gateway_send()
 
 #ifdef HELTEC_WSL_V3
     float voltage = readBattVoltage_heltec(VBAT_PIN);
-    tb.sendTelemetryData("Battery_Voltage", round(voltage*100.0)/100.0);
+    tb.sendTelemetryData("Battery_Voltage", round(voltage * 100.0) / 100.0);
 
-    // Battery Percentage berechnen
-    float battery_pct = battery_pct = battery.getPercentage();
+    // Battery Percentage berechnen (Gateway hat kein Battery-Objekt)
+    float battery_pct = constrain((voltage - 3.0f) / 1.2f * 100.0f, 0.0f, 100.0f);
 
     tb.sendTelemetryData("Battery_Percentage", round(battery_pct * 100.0f) / 100.0f);
 
-    logf("[GATEWAY] Battery Voltage = %.2f V\n", voltage);
-    
+    logln("[GATEWAY] Battery Voltage = " + String(voltage, 2) + " V");
+
+
 #endif
 
 #ifdef SEED_XIAO_ESP32S3
     float voltage = random(3500, 4201) / 1000.0f; // Simuliere Spannung zwischen 3.5V und 4.2V
     tb.sendTelemetryData("Battery_Voltage", voltage);
-    // Battery Percentage berechnen
-    float battery_pct = battery.getPercentage();
+
+    // Battery Percentage berechnen (Gateway hat kein Battery-Objekt)
+    float battery_pct = constrain((voltage - 3.0f) / 1.2f * 100.0f, 0.0f, 100.0f);
 
     tb.sendTelemetryData("Battery_Percentage", round(battery_pct * 100.0f) / 100.0f);
 #endif
@@ -354,9 +357,6 @@ void mqttTask(void* pvParameters)
 // ============================================================
 void setup()
 {
-    // ── Log-Mutex erstellen (vor allem anderen!) ────────────
-    
-
     Serial.begin(115200);
     delay(3000);
 
