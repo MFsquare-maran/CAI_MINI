@@ -39,7 +39,7 @@
 
 ## CAI-Mini PCB HW:2.0
 
-![CAI-Mini V1.0 FMA](docs/CAI-Mini_Image_HW2.jpeg)
+![CAI-Mini V2.0 FMA](docs/CAI-Mini_Image_HW2.jpeg)
 
 
 
