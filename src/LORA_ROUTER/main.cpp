@@ -167,6 +167,38 @@ void sendOwnPacket()
     setCpuLow();
 }
 
+void batterycheck(void)
+{
+    float voltage = battery.getVoltage();
+
+    if (voltage < 3.0f) {
+        logln("Battery too low -> shutdown");
+        delay(300);
+        while(true) {
+            digitalWrite(LED_ORANGE, LOW);
+            delay(10);
+            digitalWrite(LED_ORANGE, HIGH);
+
+            if (Serial) {
+                Serial.flush();// Log noch rausschreiben, bevor CPU schläft
+            }
+
+            uint64_t sending_period = 600000;  // 10 min = 600 s = 600'000 ms
+
+            esp_sleep_enable_timer_wakeup((uint64_t)sending_period * 1000ULL);  // ms → µs
+
+            #if HW_VERSION == 2
+                // Button: aufwachen, wenn ON_BUTTON auf den aktiven Pegel geht
+                esp_sleep_enable_ext0_wakeup((gpio_num_t)ON_BUTTON, 1);  // 0 = LOW aktiv, 1 = HIGH aktiv
+                digitalWrite(LORA_ENABLE, LOW); // LoRa deaktivieren, um Strom zu sparen
+            #endif
+
+            esp_deep_sleep_start(); 
+            
+        }
+    }
+}
+
 // ============================================================
 //  setup()
 // ============================================================
@@ -195,7 +227,6 @@ void setup()
     // NIE pro Zyklus abschalten (im Gegensatz zum Sensor).
     pinMode(LORA_ENABLE, OUTPUT);
     digitalWrite(LORA_ENABLE, HIGH);
-    delay(100);
     pinMode(BATTERY_CHARGING, INPUT);
 #endif
 
@@ -208,6 +239,8 @@ void setup()
 
     // ── Sensoren ──────────────────────────────────────────────
     battery.begin(BATTERY_VOLTAGE);
+    batterycheck(); // check battery voltage before doing anything else
+
     bme.begin();
     bme.set_offset(sdcard.cfg.temperature_offset,
                    sdcard.cfg.Pressure_offset,

@@ -223,6 +223,38 @@ void measureAndSend()
 
 #endif
 
+
+void batterycheck(void)
+{
+    float voltage = battery.getVoltage();
+
+    if (voltage < 3.0f) {
+        logln("Battery too low -> shutdown");
+        delay(300);
+        while(true) {
+            digitalWrite(LED_ORANGE, LOW);
+            delay(10);
+            digitalWrite(LED_ORANGE, HIGH);
+
+            if (Serial) {
+                Serial.flush();// Log noch rausschreiben, bevor CPU schläft
+            }
+
+            uint64_t sending_period = 600000;  // 10 min = 600 s = 600'000 ms
+
+            esp_sleep_enable_timer_wakeup((uint64_t)sending_period * 1000ULL);  // ms → µs
+
+            #if HW_VERSION == 2
+                // Button: aufwachen, wenn ON_BUTTON auf den aktiven Pegel geht
+                esp_sleep_enable_ext0_wakeup((gpio_num_t)ON_BUTTON, 1);  // 0 = LOW aktiv, 1 = HIGH aktiv
+            #endif
+
+            esp_deep_sleep_start(); 
+            
+        }
+    }
+}
+
 // ============================================================
 //  setup()
 // ============================================================
@@ -258,12 +290,19 @@ void setup()
     // ── WiFi deaktivieren ─────────────────────────────────────
     esp_wifi_stop();
 
+
+
     // ── SD + INI ──────────────────────────────────────────────
     sdcard.init(SD_CLK, SD_MISO, SD_MOSI, SD_CS, spi_sd);
     sdcard.readIni("/INIT.ini");
 
-    // ── Sensoren ──────────────────────────────────────────────
+    // ── Batterie beginnen ───────────────────────────────────────
     battery.begin(BATTERY_VOLTAGE);
+    batterycheck(); // check battery voltage before doing anything else
+
+    // ── Sensoren ──────────────────────────────────────────────
+
+
     bme.begin();
     bme.set_offset(sdcard.cfg.temperature_offset,
                    sdcard.cfg.Pressure_offset,

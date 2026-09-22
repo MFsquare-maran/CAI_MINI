@@ -126,12 +126,31 @@ bool InitTB() {
     return true;
 }
 
+void batterycheck(void)
+{
+    float voltage = battery.getVoltage();
+
+    if (voltage < 3.0f) {
+        logln("Battery too low -> shutdown");
+        delay(300);
+        while(true) {
+            digitalWrite(LED_ORANGE, LOW);
+            delay(10);
+            digitalWrite(LED_ORANGE, HIGH);
+            system_shutdown();
+        }
+    }
+}
+
 // ============================================================
 // Setup
 // ============================================================
 void setup() {
+
     Serial.begin(SERIAL_DEBUG_BAUD);
     delay(5000);
+
+    
 
     // --- Watchdog: Reset nach WDT_TIMEOUT_S falls Ablauf hängt ---
     esp_task_wdt_init(WDT_TIMEOUT_S, true);
@@ -166,18 +185,22 @@ void setup() {
 
     digitalWrite(LED_BLUE, LOW);
     digitalWrite(LED_ORANGE, HIGH);
-    
 
-    // --- SD ---
+
+    // ── SD + INI ──────────────────────────────────────────────
     sdcard.init(SD_CLK, SD_MISO, SD_MOSI, SD_CS);
     sdcard.readIni("/INIT.ini");
 
-    // --- Sensor ---
+
+    // ── Batterie beginnen ───────────────────────────────────────
+    battery.begin(BATTERY_VOLTAGE);
+    batterycheck(); // check battery voltage before doing anything else
+
+    // ─ Sensoren ──────────────────────────────────────────────
     bme.begin();
     bme.set_offset(sdcard.cfg.temperature_offset, sdcard.cfg.Pressure_offset, sdcard.cfg.Huminity_offset, sdcard.cfg.Gas_offset);
 
-    // --- Battery ---
-    battery.begin(BATTERY_VOLTAGE);
+
 
     digitalWrite(LED_BLUE, HIGH);
 

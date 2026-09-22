@@ -59,4 +59,6 @@
     #define LORA_MOSI    9
     #define LORA_NSS     40
 
+    #define ON_BUTTON 2
+
 #endif

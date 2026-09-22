@@ -99,6 +99,61 @@ void InitTB() {
     }
 }
 
+// ============================================================
+// Shutdown Funktion
+// ============================================================
+void system_shutdown() {
+    logln("System shutdown.");
+
+    #if HW_VERSION == 1
+
+            delay(1000);
+            pinMode(SHUTDOWN_PIN, OUTPUT);
+            delay(200);
+            digitalWrite(SHUTDOWN_PIN, LOW);
+            delay(50);
+            digitalWrite(SHUTDOWN_PIN, HIGH);
+
+    #endif
+
+    #if HW_VERSION == 2
+    
+        delay(1000);
+    
+        logln("Deep Sleep für " + String(sdcard.cfg.sending_period / 60/1000) + " Minuten.");
+        
+        if (Serial) {
+            Serial.flush();                          // Log noch rausschreiben, bevor CPU schläft
+        }
+        esp_sleep_enable_timer_wakeup((uint64_t)sdcard.cfg.sending_period * 1000ULL);  // ms → µs
+
+        // Button: aufwachen, wenn ON_BUTTON auf den aktiven Pegel geht
+        esp_sleep_enable_ext0_wakeup((gpio_num_t)ON_BUTTON, 1);  // 0 = LOW aktiv, 1 = HIGH aktiv
+
+
+        esp_deep_sleep_start();                  // kehrt nie zurück – Neustart via setup()
+
+    #endif
+
+
+}
+
+void batterycheck(void)
+{
+    float voltage = battery.getVoltage();
+
+    if (voltage < 3.0f) {
+        logln("Battery too low -> shutdown");
+        delay(300);
+        while(true) {
+            digitalWrite(LED_ORANGE, LOW);
+            delay(10);
+            digitalWrite(LED_ORANGE, HIGH);
+            system_shutdown();
+            
+        }
+    }
+}
 
 // ============================================================
 //  Setup
@@ -115,7 +170,7 @@ void setup() {
     logf("Firmware Version: ");
     logln(FW_VERSION);
 
-    sdcard.init(SD_CLK, SD_MISO,SD_MOSI,SD_CS);
+    
 
     // LEDs und Steuer-Pins konfigurieren
     pinMode(LED_BLUE,     OUTPUT);
@@ -132,11 +187,18 @@ void setup() {
 
     #endif
 
-    bme.begin();
-    battery.begin(BATTERY_VOLTAGE);
 
+
+    // ── SD + INI ──────────────────────────────────────────────
+    sdcard.init(SD_CLK, SD_MISO, SD_MOSI, SD_CS);
     sdcard.readIni("/INIT.ini");
+
+    // ── Batterie beginnen ───────────────────────────────────────
+    battery.begin(BATTERY_VOLTAGE);
+    batterycheck(); // check battery voltage before doing anything else
    
+    // ── Sensoren ──────────────────────────────────────────────
+    bme.begin();
     bme.set_offset(sdcard.cfg.temperature_offset, sdcard.cfg.Pressure_offset, sdcard.cfg.Huminity_offset, sdcard.cfg.Gas_offset);
     windRain.begin(sdcard.cfg.wind_vane_offset, sdcard.cfg.wind_speed_offset, sdcard.cfg.rain_offset, sdcard.cfg.device_direction, sdcard.cfg.wind_adc_table);
 
