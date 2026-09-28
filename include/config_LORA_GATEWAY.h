@@ -18,18 +18,18 @@
 
 #if HW_VERSION == 1
 
-    #define FW_VERSION "1.2.2_GATEWAY_HW1" // Firmware-Version
+    #define FW_VERSION "1.2.3_GATEWAY_HW1" // Firmware-Version
 
 #elif HW_VERSION == 2
 
-    #define FW_VERSION "1.2.2_GATEWAY_HW2" // Firmware-Version
+    #define FW_VERSION "1.2.3_GATEWAY_HW2" // Firmware-Version
 
 #endif
 
 
 #ifdef HELTEC_WSL_V3
 
-    #define FW_VERSION "1.2.2_GATEWAY_HELTEC" // Firmware-Version
+    #define FW_VERSION "1.2.3_GATEWAY_ROLF" // Firmware-Version
     
 #endif
 

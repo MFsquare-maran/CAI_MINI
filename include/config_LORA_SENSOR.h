@@ -13,10 +13,10 @@
 
 #if HW_VERSION == 1
 
-    #define FW_VERSION "1.0.7_SENSOR_HW1" // Firmware-Version
+    #define FW_VERSION "1.0.8_SENSOR_HW1" // Firmware-Version
 
 #elif HW_VERSION == 2
 
-    #define FW_VERSION "1.0.7_SENSOR_HW2" // Firmware-Version
+    #define FW_VERSION "1.0.8_SENSOR_HW2" // Firmware-Version
 
 #endif

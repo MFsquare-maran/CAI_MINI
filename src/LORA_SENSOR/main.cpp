@@ -9,6 +9,7 @@
 #include "pins_LORA_SENSOR.h"
 #include <Arduino.h>
 #include "LORA.h"
+#include "TelemetryPayload.h"
 #include "BME680_Sensor.h"
 #include <SPI.h>
 #include "battery.h"
@@ -42,7 +43,7 @@ constexpr uint32_t MAX_MESSAGE_SIZE    = 1024U;
 
 WiFiClient          wifiClient;
 Arduino_MQTT_Client mqttClient(wifiClient);
-ThingsBoardSized<32, 10> tb(mqttClient, MAX_MESSAGE_SIZE);
+ThingsBoardSized<32, 10> tb(mqttClient, MAX_MESSAGE_SIZE, MAX_MESSAGE_SIZE);   // Empfangs- + Sendepuffer
 
 
 LORA Lora_sensor(
@@ -60,10 +61,25 @@ LORA Lora_sensor(
 );
 
 // ============================================================
+//  Ladestatus (HW2)
+//  BQ24210 CHG: Open-Drain, aktiv LOW → LOW = lädt
+// ============================================================
+#if HW_VERSION == 2
+    #ifndef BATTERY_CHARGING_ACTIVE
+        #define BATTERY_CHARGING_ACTIVE  LOW
+    #endif
+
+    bool isCharging()
+    {
+        return digitalRead(BATTERY_CHARGING) == BATTERY_CHARGING_ACTIVE;
+    }
+#endif
+
+// ============================================================
 //  Zeitstempel letztes Senden
 // ============================================================
 unsigned long last_send = 0;
-unsigned long sending_period = 1;// Standard: 1Min. 
+unsigned long sending_period = 1;// Standard: 1Min.
 
 // ============================================================
 //  ThingsBoard
@@ -120,6 +136,9 @@ bool readSensors(float &temperature, float &pressure, float &humidity,
     logln("         Luftfeuchte:   " + String(humidity,       2) + " %");
     logln("         Gaswiderstand: " + String(gas_resistance, 2) + " kOhm");
     logln("         Akku:          " + String(battery_voltage,2) + " V");
+#if HW_VERSION == 2
+    logln("         Laden:         " + String(isCharging() ? "Ja" : "Nein"));
+#endif
     logln("         --------------------------------");
 
     return true;
@@ -131,13 +150,23 @@ bool readSensors(float &temperature, float &pressure, float &humidity,
 String buildPayload(float temperature, float pressure, float humidity,
                     float gas_resistance, float battery_voltage)
 {
-    return "Token:"            + String(sdcard.cfg.accessToken)                          +
-           ";Temperature:"     + String(round(temperature    * 100.0) / 100.0) +
-           ";Pressure:"        + String(round(pressure       * 100.0) / 100.0) +
-           ";Humidity:"        + String(round(humidity       * 100.0) / 100.0) +
-           ";Gas_Resistance:"  + String(round(gas_resistance * 100.0) / 100.0) +
-           ";Battery_Voltage:" + String(round(battery_voltage* 100.0) / 100.0) +
-           ";RSSI:";            // ← leer, Router füllt es
+    TelemetryPayload tp;
+    tp.begin(sdcard.cfg.accessToken);
+    tp.add(TK_TEMPERATURE,   temperature,     2);
+    tp.add(TK_PRESSURE,      pressure,        2);
+    tp.add(TK_HUMIDITY,      humidity,        2);
+    tp.add(TK_GAS,           gas_resistance,  2);
+    tp.add(TK_BATT_VOLTAGE,  battery_voltage, 2);
+#if HW_VERSION == 2
+    tp.add(TK_BATT_CHARGING, isCharging() ? 1.0f : 0.0f, 0);
+#endif
+
+    if (!tp.ok())
+        logln("[SENSOR] ⚠️ Payload unvollständig – siehe [TP]-Meldungen.");
+
+    logln("[SENSOR] Payload: " + String(tp.length()) + "/" + String(TP_SEND_MAX) + " Zeichen");
+
+    return tp.toString();
 }
 
 // ============================================================
@@ -147,8 +176,8 @@ void measureAndSend()
 {
     #if HW_VERSION == 1
         setCpuHigh();
-    #endif  
- 
+    #endif
+
 
     // ── LoRa aufwecken ────────────────────────────────────────
     logln("[SENSOR] Wecke LoRa auf...");
@@ -208,11 +237,11 @@ void measureAndSend()
 
             logln("System shutdown.");
             logln("Deep Sleep für " + String(sending_period / 60/1000) + " Minuten.");
-            
+
             if (Serial) {
                 Serial.flush();                          // Log noch rausschreiben, bevor CPU schläft
             }
-                                   // Log noch rausschreiben, bevor CPU schläft
+
             esp_sleep_enable_timer_wakeup((uint64_t)sending_period * 1000ULL);  // ms → µs
 
             // Button: aufwachen, wenn ON_BUTTON auf den aktiven Pegel geht
@@ -249,8 +278,8 @@ void batterycheck(void)
                 esp_sleep_enable_ext0_wakeup((gpio_num_t)ON_BUTTON, 1);  // 0 = LOW aktiv, 1 = HIGH aktiv
             #endif
 
-            esp_deep_sleep_start(); 
-            
+            esp_deep_sleep_start();
+
         }
     }
 }
@@ -263,7 +292,7 @@ void setup()
     #if HW_VERSION == 1
         setCpuFrequencyMhz(240);
     #endif
-      
+
     Serial.begin(115200);
     delay(3000);
 
@@ -319,7 +348,7 @@ void setup()
     last_send = millis() + (sending_period);
 
     setCpuLow();
-    
+
     #endif
 
 }
@@ -333,14 +362,15 @@ void loop()
     #if HW_VERSION == 1
 
         if (millis() - last_send >= sending_period )
-            {   
+            {
                 setCpuHigh();
 
-                if (InitWiFi(sdcard.cfg.ssid,sdcard.cfg.password)) 
+                if (InitWiFi(sdcard.cfg.ssid,sdcard.cfg.password))
                 {
                     logln("\n🔧 Checking for firmware updates...");
                     updater.checkAndUpdate(sdcard.cfg.thingsboardServer, sdcard.cfg.accessToken, FW_VERSION, 1);
                     InitTB();
+                    logln("[SENSOR] Sende Attribute: Channel, BSSID, LocalIP, SSID, FW-Version");
                     tb.sendAttributeData("channel",   WiFi.channel());
                     tb.sendAttributeData("bssid",     WiFi.BSSIDstr().c_str());
                     tb.sendAttributeData("localIp",   WiFi.localIP().toString().c_str());
@@ -360,20 +390,22 @@ void loop()
                     measureAndSend(); // senden über LORA
                 }
 
-                
+
             }
 
             // ── Kurz yielden ──────────────────────────────────────────
             delay(10);
     #endif
-    
+
     #if HW_VERSION == 2
 
-        if (InitWiFi(sdcard.cfg.ssid,sdcard.cfg.password)) 
+        if (InitWiFi(sdcard.cfg.ssid,sdcard.cfg.password))
         {
             logln("\n🔧 Checking for firmware updates...");
             updater.checkAndUpdate(sdcard.cfg.thingsboardServer, sdcard.cfg.accessToken, FW_VERSION, 1);
             InitTB();
+            logln("[SENSOR] Sende Attribute: Channel, BSSID, LocalIP, SSID, RSSI, FW-Version");
+            tb.sendAttributeData("rssi",      WiFi.RSSI());
             tb.sendAttributeData("channel",   WiFi.channel());
             tb.sendAttributeData("bssid",     WiFi.BSSIDstr().c_str());
             tb.sendAttributeData("localIp",   WiFi.localIP().toString().c_str());
@@ -391,16 +423,12 @@ void loop()
             system_shutdown();
 
         }else{
-            
+
             logln("[SENSOR] WiFi → disconnect → wifi shutdown.");
             esp_wifi_stop();
             measureAndSend(); // senden über LORA
             system_shutdown();
         }
 
-                
-            
-
-    
     #endif
 }

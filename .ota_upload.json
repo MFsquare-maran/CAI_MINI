@@ -1,0 +1,10 @@
+﻿{
+    "profiles":  {
+                     "CAI_MINI_LORA_SENSOR_HW2":  "CAI-Mini_LORA_Sensor_HW2",
+                     "CAI_MINI_LORA_SENSOR_HW1":  "CAI-Mini_LORA_Sensor_HW1",
+                     "CAI_MINI_LORA_ROUTER_HW1":  "CAI-Mini_LORA_Router_HW1",
+                     "CAI_MINI_LORA_GATEWAY_HELTEC_WIRELESS_STICK_LITE_V3":  "CAI-Mini_LORA_Gateway",
+                     "CAI_MINI_LORA_ROUTER_HW2":  "CAI-Mini_LORA_Router_HW2"
+                 },
+    "user":  "maran@mfsquare.ch"
+}

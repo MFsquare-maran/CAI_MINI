@@ -11,6 +11,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include "LORA.h"
+#include "TelemetryPayload.h"
 #include "sdcard.h"
 #include "battery.h"
 #include "BME680_Sensor.h"
@@ -37,7 +38,7 @@ constexpr uint32_t SERIAL_DEBUG_BAUD = 115200U;
 
 WiFiClient          wifiClient;
 Arduino_MQTT_Client mqttClient(wifiClient);
-ThingsBoardSized<32, 10> tb(mqttClient, MAX_MESSAGE_SIZE);
+ThingsBoardSized<32, 10> tb(mqttClient, MAX_MESSAGE_SIZE, MAX_MESSAGE_SIZE);   // Empfangs- + Sendepuffer
 
 LORA Lora_router(
     LORA_NSS,
@@ -96,6 +97,8 @@ void setCpuHigh()
 
 // ============================================================
 //  Fremdes Paket weiterleiten
+//  RS/SN werden nur vom ersten Router angehängt,
+//  weitere Router leiten unverändert weiter
 // ============================================================
 void forwardPacket()
 {
@@ -103,23 +106,21 @@ void forwardPacket()
 
     String sender = Lora_router.readSender();
     String data   = Lora_router.readData();
-    float  rssi   = Lora_router.getLastRSSI();   // RSSI des empfangenen Pakets
+    float  rssi   = Lora_router.getLastRSSI();
+    float  snr    = Lora_router.getLastSNR();
 
     logln("[ROUTER] Paket empfangen von: " + sender);
-    logln("[ROUTER] RSSI vom Sensor:      " + String(rssi, 1) + " dBm");
+    logln("[ROUTER] RSSI: " + String(rssi, 1) + " dBm | SNR: " + String(snr, 1) + " dB");
 
-    // ── RSSI anhängen (leeres Feld ersetzen oder hinzufügen) ──
-    if (data.endsWith("RSSI:")) {
-        data += String(round(rssi * 10.0) / 10.0);            // leeres Feld befüllen
-    } else if (data.indexOf("RSSI:") == -1) {
-        data += ";RSSI:" + String(round(rssi * 10.0) / 10.0); // Feld fehlt → anhängen
-    }
-    // sonst: RSSI bereits befüllt → nicht überschreiben
+    String fwd = tp_addHopInfo(data, rssi, snr);
 
-    logln("[ROUTER] Weiterleiten: " + data);
+    if (fwd == data) logln("[ROUTER] RS/SN bereits vorhanden → unverändert.");
+    else             logln("[ROUTER] RS/SN angehängt.");
+
+    logln("[ROUTER] Weiterleiten: " + fwd);
 
     digitalWrite(LED_BLUE, HIGH);
-    bool ok = Lora_router.transmit(sdcard.cfg.SenderID, data);
+    bool ok = Lora_router.transmit(sdcard.cfg.SenderID, fwd);
     digitalWrite(LED_BLUE, LOW);
 
     if (ok) logln("[ROUTER] ✅ Paket weitergeleitet.");
@@ -148,17 +149,21 @@ void sendOwnPacket()
     float gas_resistance  = bme.getGasResistance();
     float battery_voltage = battery.getVoltage();
 
-    String payload =
-        "Token:"            + String(sdcard.cfg.accessToken)                   +
-        ";Temperature:"     + String(round(temperature     * 100.0) / 100.0) +
-        ";Pressure:"        + String(round(pressure        * 100.0) / 100.0) +
-        ";Humidity:"        + String(round(humidity        * 100.0) / 100.0) +
-        ";Gas_Resistance:"  + String(round(gas_resistance  * 100.0) / 100.0) +
-        ";Battery_Voltage:" + String(round(battery_voltage * 100.0) / 100.0) +
-        ";RSSI:";            // ← leer, Gateway füllt es
+    TelemetryPayload tp;
+    tp.begin(sdcard.cfg.accessToken);
+    tp.add(TK_TEMPERATURE,   temperature,     2);
+    tp.add(TK_PRESSURE,      pressure,        2);
+    tp.add(TK_HUMIDITY,      humidity,        2);
+    tp.add(TK_GAS,           gas_resistance,  2);
+    tp.add(TK_BATT_VOLTAGE,  battery_voltage, 2);
+
+    if (!tp.ok())
+        logln("[ROUTER] ⚠️ Payload unvollständig – siehe [TP]-Meldungen.");
+
+    logln("[ROUTER] Payload: " + String(tp.length()) + "/" + String(TP_SEND_MAX) + " Zeichen");
 
     digitalWrite(LED_ORANGE, LOW);
-    bool ok = Lora_router.transmit(sdcard.cfg.SenderID, payload);
+    bool ok = Lora_router.transmit(sdcard.cfg.SenderID, tp.toString());
     digitalWrite(LED_ORANGE, HIGH);
 
     if (ok) logln("[ROUTER] ✅ Eigenes Paket gesendet.");
@@ -193,8 +198,8 @@ void batterycheck(void)
                 digitalWrite(LORA_ENABLE, LOW); // LoRa deaktivieren, um Strom zu sparen
             #endif
 
-            esp_deep_sleep_start(); 
-            
+            esp_deep_sleep_start();
+
         }
     }
 }
@@ -285,6 +290,8 @@ void loop()
             logln("\n🔧 Checking for firmware updates...");
             updater.checkAndUpdate(sdcard.cfg.thingsboardServer, sdcard.cfg.accessToken, FW_VERSION, 1);
             InitTB();
+            logln("[ROUTER] Sende Attribute: Channel, BSSID, LocalIP, SSID, RSSI, FW-Version");
+            tb.sendAttributeData("rssi",      WiFi.RSSI());
             tb.sendAttributeData("channel",   WiFi.channel());
             tb.sendAttributeData("bssid",     WiFi.BSSIDstr().c_str());
             tb.sendAttributeData("localIp",   WiFi.localIP().toString().c_str());

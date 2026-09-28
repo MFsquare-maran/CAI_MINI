@@ -1,15 +1,15 @@
 // ============================================================
 //  LORA.cpp
 //  Implementierung der LORA Klasse mit RadioLib / SX1262
-//  Interrupt-basierter Empfang via DIO1
-//  Datum:        2026-04-16
-//  Fixes:        - s_packetFlag korrekt genutzt
-//                - ISR in begin() + sendRaw() registriert
-//                - Deadlock-Fix in waitForAck()
-//                - Deep Sleep via deepSleepUntilPacket()
+//  - Interrupt-basierter Empfang via DIO1
+//  - ACK-Handshake mit Retries
+//  - CSMA (Channel Activity Detection) vor dem Senden
+//  - optionale ChaCha20-Verschluesselung
+//  Datum: 2026-04-16
 // ============================================================
 
 #include "LORA.h"
+#include "TelemetryKeys.h"
 
 // ============================================================
 //  Statisches Member definieren (genau einmal in .cpp!)
@@ -126,13 +126,13 @@ bool LORA::begin(const String& ownName)
 // ============================================================
 bool LORA::transmit(const String& empfaenger, const String& daten)
 {
-    
+
     String packet = buildPacket(empfaenger, LORA_TYPE_DATA, daten);
 
     for (int versuch = 1; versuch <= m_maxRetries; versuch++)
     {
         logln("[LORA] Sende (Versuch " + String(versuch) +
-               "/" + String(m_maxRetries) + "): " + 
+               "/" + String(m_maxRetries) + "): " +
                empfaenger + "|" + m_ownName + "|DATA|" + daten);
 
         if (!sendRaw(packet))
@@ -211,11 +211,12 @@ void LORA::sleepRadio()
 
 
 // ============================================================
-//  sendRaw — ISR waehrend TX deaktivieren, danach neu setzen
+//  sendRaw — CSMA, dann senden
+//  ISR waehrend Scan/TX deaktiviert, danach neu gesetzt
 // ============================================================
 bool LORA::sendRaw(const String& packet)
 {
-    // ── CSMA: Kanal prüfen vor dem Senden ────────────────────
+    // ── CSMA: Kanal pruefen vor dem Senden ────────────────────
     const int MAX_ROUNDS = 3;
 
     for (int round = 0; round < MAX_ROUNDS; round++)
@@ -233,7 +234,7 @@ bool LORA::sendRaw(const String& packet)
         {   uint16_t ca = random(2000,3000);
 
             logln("[LORA] CSMA: Kanal besetzt (Runde " + String(round + 1) + ") – warte " + String(ca) + "ms");
-            
+
             delay(ca);
             continue;
         }
@@ -264,7 +265,9 @@ bool LORA::sendRaw(const String& packet)
 
 
 // ============================================================
-//  waitForAck — FIX: Deadlock durch DATA-During-Wait behoben
+//  waitForAck
+//  DATA-Pakete fuer mich werden waehrend des Wartens sofort
+//  quittiert, damit die Gegenseite nicht blockiert
 // ============================================================
 bool LORA::waitForAck(const String& expectedSender)
 {
@@ -296,7 +299,6 @@ bool LORA::waitForAck(const String& expectedSender)
         }
 
         // ── Fall 2: DATA-Paket fuer mich waehrend ACK-Warten ─
-        // → sofort ACK-en damit Gegenseite nicht im Deadlock haengt!
         if (dest == m_ownName && typ == LORA_TYPE_DATA)
         {
             logln("[LORA] DATA waehrend ACK-Wait von: " +
@@ -305,11 +307,10 @@ bool LORA::waitForAck(const String& expectedSender)
             m_newPacket = true;
             m_receivedCount++;
             sendAck(sender);
-            // Weiter auf unser eigenes ACK warten
             continue;
         }
 
-        // ── Fall 3: Wirklich fremdes Paket ───────────────────
+        // ── Fall 3: Fremdes Paket ────────────────────────────
         logln("[LORA] Fremdes Paket ignoriert: " + incoming);
     }
 
@@ -324,12 +325,12 @@ void LORA::sendAck(const String& empfaenger)
 {
     String ackPacket = buildPacket(empfaenger, LORA_TYPE_ACK, LORA_ACK_PAYLOAD);
     logln("[LORA] Sende ACK an: " + empfaenger);
-    delay(100); 
+    delay(100);
     sendRaw(ackPacket);
 }
 
 // ============================================================
-//  tryReceive — korrekt interrupt-basiert via s_packetFlag
+//  tryReceive — interrupt-basiert via s_packetFlag
 // ============================================================
 String LORA::tryReceive()
 {
@@ -339,7 +340,7 @@ String LORA::tryReceive()
         return "";
     }
 
-    // Flag sofort loeschen (vor readData, nicht danach!)
+    // Flag vor readData loeschen
     s_packetFlag = false;
 
     String received = "";
@@ -453,7 +454,7 @@ bool LORA::parsePacket(const String& raw)
         logln("[LORA] Entschlüsselung fehlgeschlagen – verworfen");
         return false;
     }
-    if (!decrypted.startsWith("Token:"))
+    if (!decrypted.startsWith(TK_TOKEN ":"))
     {
         logln("[LORA] Paket verworfen – ungueltiges Format");
         return false;
@@ -481,19 +482,19 @@ String LORA::encrypt(const String& plaintext) const
 {
     int len = plaintext.length();
 
-    // ── IV zufällig generieren (8 Bytes) ─────────────────────
+    // ── IV zufaellig generieren (8 Bytes) ─────────────────────
     uint8_t iv[CHACHA_IV_LENGTH];
     for (int i = 0; i < CHACHA_IV_LENGTH; i++)
         iv[i] = (uint8_t)random(0, 256);
 
-    // ── ChaCha20 verschlüsseln ────────────────────────────────
+    // ── ChaCha20 verschluesseln ───────────────────────────────
     uint8_t ciphertext[len];
     ChaCha chacha;
     chacha.setKey(CHACHA_KEY, CHACHA_KEY_LENGTH);
     chacha.setIV(iv, CHACHA_IV_LENGTH);
     chacha.encrypt(ciphertext, (const uint8_t*)plaintext.c_str(), len);
 
-    // ── IV + Ciphertext zusammenführen ────────────────────────
+    // ── IV + Ciphertext zusammenfuehren ───────────────────────
     int combinedLen = CHACHA_IV_LENGTH + len;
     uint8_t combined[combinedLen];
     memcpy(combined,                   iv,         CHACHA_IV_LENGTH);
@@ -528,7 +529,7 @@ String LORA::decrypt(const String& ciphertext) const
     uint8_t iv[CHACHA_IV_LENGTH];
     memcpy(iv, decoded, CHACHA_IV_LENGTH);
 
-    // ── ChaCha20 entschlüsseln ────────────────────────────────
+    // ── ChaCha20 entschluesseln ───────────────────────────────
     int dataLen = decodedLen - CHACHA_IV_LENGTH;
     uint8_t plaintext[dataLen];
 

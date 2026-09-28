@@ -2,15 +2,21 @@
  * ============================================================
  *  CAI_MINI — LoRa Gateway
  * ============================================================
- *  Beschreibung : Empfängt LoRa Pakete von Sensoren und
- *                 Router und sendet sie per MQTT an TB weiter
- *  Board        : Seeed XIAO ESP32-S3
+ *  Beschreibung : Empfängt LoRa-Pakete von Sensoren und Routern,
+ *                 übersetzt die Kurzkeys und sendet die Werte
+ *                 per MQTT an ThingsBoard
+ *  Board        : Seeed XIAO ESP32-S3 / Heltec WSL V3
  *  Framework    : Arduino
  *  Autor        : maran
  *  Erstellt     : 2026-04-01
- *  Update       : Dual-Core via FreeRTOS Queue
+ *
+ *  Architektur  : Dual-Core via FreeRTOS Queue
  *                 Core 0 → LoRa empfangen
  *                 Core 1 → WiFi / MQTT / ThingsBoard
+ *
+ *  Erweiterung  :
+ *    Neuer Messwert   → TelemetryKeys.h  (Kurzkey + TB-Name)
+ *    Berechneter Wert → DERIVED_VALUES   (Abschnitt unten)
  * ============================================================
  */
 
@@ -18,7 +24,7 @@
 #include "pins_LORA_GATEWAY.h"
 #include <Arduino.h>
 #include "LORA.h"
-#include "SensorPacket.h"
+#include "TelemetryPayload.h"
 #include <WiFi.h>
 #include <Arduino_MQTT_Client.h>
 #include <ThingsBoard.h>
@@ -44,9 +50,71 @@ const char* TB_TOKEN_GATEWAY = GATEWAY_TOKEN;
 const uint16_t TB_PORT       = 1884;
 
 // ============================================================
+//  Akku-Kennlinie (Li-Ion)
+// ============================================================
+constexpr double BATT_V_EMPTY = 3.0;
+constexpr double BATT_V_FULL  = 4.2;
+
+static double batteryPercent(double voltage)
+{
+    double pct = (voltage - BATT_V_EMPTY) / (BATT_V_FULL - BATT_V_EMPTY) * 100.0;
+    pct = constrain(pct, 0.0, 100.0);
+    return round(pct * 100.0) / 100.0;
+}
+
+// ============================================================
+//  Berechnete Werte
+//
+//  Werden aus den empfangenen Werten eines Pakets berechnet
+//  und zusätzlich als Telemetrie gesendet. Liefert ein Gerät
+//  den Wert selbst, wird er nicht berechnet.
+//
+//  Neuer Wert:
+//    1) Funktion  bool derive_xxx(const TelemetryData& d, double& out)
+//       → true + out setzen, wenn berechenbar
+//    2) Zeile in DERIVED_VALUES[] eintragen
+//
+//  Eingangswerte über ThingsBoard-Namen abfragen:
+//    const TelemetryField* f = tp_find(d, "Battery_Voltage");
+// ============================================================
+typedef bool (*DeriveFn)(const TelemetryData& d, double& out);
+
+struct DerivedValue
+{
+    const char* tbKey;
+    DeriveFn    fn;
+};
+
+static bool derive_batteryPercentage(const TelemetryData& d, double& out)
+{
+    const TelemetryField* bv = tp_find(d, "Battery_Voltage");
+    if (!bv) return false;
+    out = batteryPercent(bv->value);
+    return true;
+}
+
+static const DerivedValue DERIVED_VALUES[] =
+{
+    //  ThingsBoard-Name        Berechnung
+    { "Battery_Percentage",  derive_batteryPercentage },
+};
+
+// ============================================================
+//  Queue-Element
+//  Core 0 kopiert Rohpayload + Funkwerte hinein,
+//  Core 1 parst und sendet an ThingsBoard
+// ============================================================
+struct LoraRxItem
+{
+    char  sender[32];
+    char  payload[TP_RX_MAX + 1];
+    float gatewayRSSI;      // LoRa-RSSI gemessen vom Gateway
+    float gatewaySNR;       // LoRa-SNR  gemessen vom Gateway
+};
+
+// ============================================================
 //  FreeRTOS Queue
-//  Core 0 schreibt SensorPacket rein, Core 1 liest es aus
-//  Queue-Tiefe 8: bis zu 8 Pakete können warten
+//  Tiefe 8: bis zu 8 Pakete können warten
 // ============================================================
 static QueueHandle_t s_packetQueue = nullptr;
 
@@ -61,7 +129,7 @@ constexpr uint32_t MAX_MESSAGE_SIZE = 1024U;
 
 WiFiClient               wifiClient;
 Arduino_MQTT_Client      mqttClient(wifiClient);
-ThingsBoardSized<32, 10> tb(mqttClient, MAX_MESSAGE_SIZE);
+ThingsBoardSized<32, 10> tb(mqttClient, MAX_MESSAGE_SIZE, MAX_MESSAGE_SIZE);   // Empfangs- + Sendepuffer
 
 // ============================================================
 //  SPI + LoRa Objekte
@@ -185,13 +253,71 @@ void ensureWiFi()
 }
 
 // ============================================================
-//  Telemetrie an ThingsBoard senden
+//  Telemetrie senden — alle empfangenen Werte
+// ============================================================
+static void sendReceivedValues(const TelemetryData& d)
+{
+    logln("[TB] Telemetrie (" + String(d.count) + " Felder):");
+
+    for (uint8_t i = 0; i < d.count; i++)
+    {
+        tb.sendTelemetryData(d.fields[i].key, d.fields[i].value);
+        logln("        " + String(d.fields[i].key) + " = " + String(d.fields[i].value, 2));
+    }
+}
+
+// ============================================================
+//  Telemetrie senden — berechnete Werte
+// ============================================================
+static void sendDerivedValues(const TelemetryData& d)
+{
+    for (const DerivedValue& dv : DERIVED_VALUES)
+    {
+        if (tp_find(d, dv.tbKey)) continue;   // vom Gerät geliefert
+
+        double value;
+        if (dv.fn(d, value))
+        {
+            tb.sendTelemetryData(dv.tbKey, value);
+            logln("        " + String(dv.tbKey) + " = " + String(value, 2) + " (berechnet)");
+        }
+    }
+}
+
+// ============================================================
+//  Attribute senden — Funkqualität
+//
+//  RS/SN im Paket → Werte des ersten Routers
+//  sonst          → Direktempfang, Werte des Gateways
+// ============================================================
+static void sendLinkQuality(const TelemetryData& d, const LoraRxItem& item)
+{
+    float rssi = d.hasRssi ? d.rssi : item.gatewayRSSI;
+    float snr  = d.hasSnr  ? d.snr  : item.gatewaySNR;
+
+    logln(String("[TB] RSSI ") + (d.hasRssi ? "vom Router:  " : "vom Gateway: ") +
+          String(rssi, 1) + " dBm");
+    logln(String("[TB] SNR  ") + (d.hasSnr  ? "vom Router:  " : "vom Gateway: ") +
+          String(snr, 1) + " dB");
+
+    tb.sendAttributeData("rssi", round(rssi * 10.0) / 10.0);
+    tb.sendAttributeData("snr",  round(snr  * 10.0) / 10.0);
+}
+
+// ============================================================
+//  Empfangenes Paket an ThingsBoard senden
 //  Läuft auf Core 1
 // ============================================================
-void sendToThingsBoard(const SensorPacket& p)
+void sendToThingsBoard(const LoraRxItem& item)
 {
-    char accessToken[64] = {0};
-    strlcpy(accessToken, p.token, sizeof(accessToken));
+    static TelemetryData d;   // ~1 KB → statisch statt Stack (nur Core 1)
+
+    if (!tp_parse(item.payload, d))
+    {
+        logln("[TB] ❌ Paket ungültig – verworfen.");
+        return;
+    }
+
     ensureWiFi();
 
     if (tb.connected())
@@ -200,34 +326,11 @@ void sendToThingsBoard(const SensorPacket& p)
         delay(100);
     }
 
-    if (!InitTB(TB_SERVER, accessToken, TB_PORT)) return;
+    if (!InitTB(TB_SERVER, d.token, TB_PORT)) return;
 
-    tb.sendTelemetryData("Temperature",    round(p.temperature    * 100.0) / 100.0);
-    tb.sendTelemetryData("Pressure",       round(p.pressure       * 100.0) / 100.0);
-    tb.sendTelemetryData("Humidity",       round(p.humidity       * 100.0) / 100.0);
-    tb.sendTelemetryData("Gas_Resistance", round(p.gasResistance  * 100.0) / 100.0);
-    tb.sendTelemetryData("Battery_Voltage",round(p.batteryVoltage * 100.0) / 100.0);
-
-        // Battery Percentage berechnen
-    float battery_pct = (p.batteryVoltage - 3.0f) / (4.2f - 3.0f) * 100.0f;
-    battery_pct = constrain(battery_pct, 0.0f, 100.0f);
-
-    tb.sendTelemetryData("Battery_Percentage", round(battery_pct * 100.0f) / 100.0f);
-
-    // ── RSSI: bereits beim Empfang in Core 0 kopiert ─────────
-    float rssi_to_send;
-    if (p.rssi == -1.0f)
-    {
-        rssi_to_send = p.gatewayRSSI; // vom Gateway gemessen, in Queue kopiert
-        logln("[TB] RSSI vom Gateway: " + String(rssi_to_send, 1) + " dBm");
-    }
-    else
-    {
-        rssi_to_send = p.rssi;
-        logln("[TB] RSSI vom Router:  " + String(rssi_to_send, 1) + " dBm");
-    }
-    tb.sendAttributeData("rssi", round(rssi_to_send * 10.0) / 10.0);
-    tb.sendAttributeData("snr",  round(p.gatewaySNR * 10.0) / 10.0);
+    sendReceivedValues(d);
+    sendDerivedValues(d);
+    sendLinkQuality(d, item);
 
     logln("[TB] ✅ Daten gesendet.");
     tb.loop();
@@ -277,6 +380,9 @@ void gateway_send()
 
     InitTB(TB_SERVER, TB_TOKEN_GATEWAY, TB_PORT);
 
+    delay(1000);
+
+    logln("[GATEWAY] Sende Attribute: RSSI, SNR, Channel, BSSID, LocalIP, SSID, FW-Version");
     tb.sendAttributeData("rssi",      WiFi.RSSI());
     tb.sendAttributeData("channel",   WiFi.channel());
     tb.sendAttributeData("bssid",     WiFi.BSSIDstr().c_str());
@@ -286,26 +392,16 @@ void gateway_send()
 
 #ifdef HELTEC_WSL_V3
     float voltage = readBattVoltage_heltec(VBAT_PIN);
-    tb.sendTelemetryData("Battery_Voltage", round(voltage * 100.0) / 100.0);
-
-    // Battery Percentage berechnen (Gateway hat kein Battery-Objekt)
-    float battery_pct = constrain((voltage - 3.0f) / 1.2f * 100.0f, 0.0f, 100.0f);
-
-    tb.sendTelemetryData("Battery_Percentage", round(battery_pct * 100.0f) / 100.0f);
+    tb.sendTelemetryData("Battery_Voltage",    round(voltage * 100.0) / 100.0);
+    tb.sendTelemetryData("Battery_Percentage", batteryPercent(voltage));
 
     logln("[GATEWAY] Battery Voltage = " + String(voltage, 2) + " V");
-
-
 #endif
 
 #ifdef SEED_XIAO_ESP32S3
     float voltage = random(3500, 4201) / 1000.0f; // Simuliere Spannung zwischen 3.5V und 4.2V
-    tb.sendTelemetryData("Battery_Voltage", voltage);
-
-    // Battery Percentage berechnen (Gateway hat kein Battery-Objekt)
-    float battery_pct = constrain((voltage - 3.0f) / 1.2f * 100.0f, 0.0f, 100.0f);
-
-    tb.sendTelemetryData("Battery_Percentage", round(battery_pct * 100.0f) / 100.0f);
+    tb.sendTelemetryData("Battery_Voltage",    voltage);
+    tb.sendTelemetryData("Battery_Percentage", batteryPercent(voltage));
 #endif
 
     logln("[TB] ✅ Daten gesendet.");
@@ -322,15 +418,15 @@ void gateway_send()
 // ============================================================
 //  Core 1 Task — WiFi / MQTT / ThingsBoard
 //
-//  Wartet blockierend auf Queue-Einträge von Core 0.
-//  Verarbeitet SensorPackets und gateway_send() Signal.
+//  Wartet auf Queue-Einträge von Core 0.
+//  Verarbeitet Pakete und das gateway_send() Signal.
 //  Core 0 (LoRa) läuft komplett unabhängig weiter.
 // ============================================================
 void mqttTask(void* pvParameters)
 {
     logln("[MQTT-TASK] Core 1 gestartet.");
 
-    SensorPacket p;
+    static LoraRxItem item;
 
     for (;;)
     {
@@ -342,11 +438,12 @@ void mqttTask(void* pvParameters)
         }
 
         // ── Queue: Paket vorhanden? (50ms warten) ────────────
-        if (xQueueReceive(s_packetQueue, &p, pdMS_TO_TICKS(50)) == pdTRUE)
+        if (xQueueReceive(s_packetQueue, &item, pdMS_TO_TICKS(50)) == pdTRUE)
         {
-            logln("[MQTT-TASK] Paket aus Queue – sende an ThingsBoard.");
+            logln("[MQTT-TASK] Paket aus Queue (" + String(item.sender) +
+                  ") – sende an ThingsBoard.");
             digitalWrite(LED_BOARD, ON);
-            sendToThingsBoard(p);
+            sendToThingsBoard(item);
             digitalWrite(LED_BOARD, OFF);
         }
     }
@@ -407,8 +504,7 @@ void setup()
     }
 
     // ── FreeRTOS Queue erstellen ──────────────────────────────
-    // Tiefe 8: bis zu 8 SensorPackets können warten
-    s_packetQueue = xQueueCreate(8, sizeof(SensorPacket));
+    s_packetQueue = xQueueCreate(8, sizeof(LoraRxItem));
     if (s_packetQueue == nullptr)
     {
         logln("[QUEUE] KRITISCH: Queue konnte nicht erstellt werden!");
@@ -438,7 +534,7 @@ void setup()
 // ============================================================
 //  loop() — läuft auf Core 0
 //  Nur LoRa empfangen + Paket in Queue legen
-//  Kein WiFi, kein MQTT, kein blocking hier
+//  Kein WiFi, kein MQTT, kein Blocking
 // ============================================================
 void loop()
 {
@@ -454,25 +550,30 @@ void loop()
         logln("        Sender  : " + sender);
         logln("        Payload : " + payload);
 
-        SensorPacket packed = parseSensorPacket(sender, payload);
-
-        // ── RSSI/SNR jetzt kopieren solange wir auf Core 0 sind
-        // Core 1 darf Lora_gateway nicht anfassen!
-        packed.gatewayRSSI = Lora_gateway.getLastRSSI();
-        packed.gatewaySNR  = Lora_gateway.getLastSNR();
-
-        logln("        RSSI    : " + String(packed.gatewayRSSI, 1) + " dBm");
-        logln("        SNR     : " + String(packed.gatewaySNR,  1) + " dB");
-        logln("[LORA] ──────────────────────────────────────────");
-
-        // ── In Queue legen (0ms warten: wenn voll → droppen) ─
-        if (xQueueSend(s_packetQueue, &packed, 0) != pdTRUE)
+        if (payload.length() > TP_RX_MAX)
         {
-            logln("[QUEUE] ⚠️ Queue voll – Paket verworfen!");
+            logln("[LORA] ⚠️ Payload zu lang (" + String(payload.length()) + ") – verworfen!");
         }
         else
         {
-            logln("[QUEUE] ✅ Paket in Queue.");
+            LoraRxItem item = {};
+            strlcpy(item.sender,  sender.c_str(),  sizeof(item.sender));
+            strlcpy(item.payload, payload.c_str(), sizeof(item.payload));
+
+            // ── RSSI/SNR auf Core 0 kopieren ─────────────────
+            // Core 1 greift nicht auf Lora_gateway zu
+            item.gatewayRSSI = Lora_gateway.getLastRSSI();
+            item.gatewaySNR  = Lora_gateway.getLastSNR();
+
+            logln("        RSSI    : " + String(item.gatewayRSSI, 1) + " dBm");
+            logln("        SNR     : " + String(item.gatewaySNR,  1) + " dB");
+            logln("[LORA] ──────────────────────────────────────────");
+
+            // ── In Queue legen (0ms warten: wenn voll → verwerfen)
+            if (xQueueSend(s_packetQueue, &item, 0) != pdTRUE)
+                logln("[QUEUE] ⚠️ Queue voll – Paket verworfen!");
+            else
+                logln("[QUEUE] ✅ Paket in Queue.");
         }
     }
 
