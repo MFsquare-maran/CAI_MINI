@@ -76,7 +76,7 @@ LogEntry data;
 
 WiFiClient          wifiClient;
 Arduino_MQTT_Client mqttClient(wifiClient);
-ThingsBoardSized<32, 10> tb(mqttClient, MAX_MESSAGE_SIZE);
+ThingsBoardSized<32, 10> tb(mqttClient, MAX_MESSAGE_SIZE, MAX_MESSAGE_SIZE);   // Empfangs- + Sendepuffer
 
 Battery battery;
 
